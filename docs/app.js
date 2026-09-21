@@ -94,6 +94,7 @@ function readLiveSheet(sheet){
     if(!dataset){reject(Error('지원하지 않는 데이터입니다.'));return;}
     const callback='manyoSheet_'+Date.now()+'_'+Math.random().toString(36).slice(2);
     const script=document.createElement('script');
+    script.crossOrigin='anonymous';
     let timer;
     const cleanup=()=>{clearTimeout(timer);script.remove();delete window[callback]};
     window[callback]=result=>{cleanup();if(result.error||!Array.isArray(result.rows))reject(Error('회사 계정 데이터 연결에서 조회에 실패했습니다.'));else resolve(result.rows)};
