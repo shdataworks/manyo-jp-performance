@@ -86,30 +86,20 @@ function latestDate(rs){return rs.reduce((latest,r)=>r.date>latest?r.date:latest
 function dataStatus(label){return `Google Sheets · 성과 ${nf.format(rows.length)}행 (${latestDate(rows)}까지) · 키워드 ${nf.format(keywordRows.length)}행 (${latestDate(keywordRows)}까지) · ${label}`}
 Promise.all([fetch('data.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('성과 데이터 파일을 열 수 없습니다.');return r.json()}),fetch('keywords.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('키워드 데이터 파일을 열 수 없습니다.');return r.json()})]).then(([d,k])=>{rows=normalize(d.rows);keywordRows=normalizeKeywords(k.rows);$('status').textContent=dataStatus('저장된 데이터 · 원본 확인 중');initialize()}).catch(e=>{$('status').textContent='저장된 데이터 불러오기 실패: '+e.message}).finally(()=>{$('refresh').disabled=false;$('refreshSource').disabled=false;$('refresh').onclick()});
 
-// Google Visualization's public-sheet JSONP transport avoids cross-origin CSV restrictions.
-function sheetMatrix(result){
-  if(result.status!=='ok'||!result.table)throw Error('구글 시트를 읽을 수 없습니다. 원본 시트의 접근 권한을 확인하세요.');
-  const {cols,rows}=result.table;
-  return [cols.map(c=>c.label),...rows.map(r=>cols.map((col,i)=>{
-    const v=r.c[i]?.v??'';
-    if(col.type==='date'||col.type==='datetime'){
-      const m=String(v).match(/^Date\((\d+),(\d+),(\d+)/);
-      if(m)return `${m[1]}-${String(Number(m[2])+1).padStart(2,'0')}-${m[3].padStart(2,'0')}`;
-    }
-    return v;
-  }))];
-}
+// Read-only feed executed by the company Google account.
+const companyFeed = 'https://script.google.com/macros/s/AKfycbyyQaOb05tdY1ZD5cdnjMNTCnCCxwjt7fzRcmXkEjakZzuog6m2Syo72SAKf3tChtDrcA/exec';
 function readLiveSheet(sheet){
   return new Promise((resolve,reject)=>{
+    const dataset=({'AMZ JP RAW':'performance','AMZ JP Keywords Raw':'keywords'})[sheet];
+    if(!dataset){reject(Error('지원하지 않는 데이터입니다.'));return;}
     const callback='manyoSheet_'+Date.now()+'_'+Math.random().toString(36).slice(2);
     const script=document.createElement('script');
     let timer;
     const cleanup=()=>{clearTimeout(timer);script.remove();delete window[callback]};
-    window[callback]=result=>{cleanup();try{resolve(sheetMatrix(result))}catch(e){reject(e)}};
-    script.onerror=()=>{cleanup();reject(Error('구글 시트 연결에 실패했습니다. 네트워크와 원본 시트 접근 권한을 확인하세요.'))};
-    timer=setTimeout(()=>{cleanup();reject(Error('구글 시트 응답 시간이 초과되었습니다. 잠시 후 다시 시도하세요.'))},60000);
-    const params=new URLSearchParams({sheet,headers:'1',tqx:'out:json;responseHandler:'+callback,_:String(Date.now())});
-    script.src='https://docs.google.com/spreadsheets/d/1KUezmcwvTmioQfoWoyg9ueen5p8mxOygUBQ4G2HIY0Y/gviz/tq?'+params;
+    window[callback]=result=>{cleanup();if(result.error||!Array.isArray(result.rows))reject(Error('회사 계정 데이터 연결에서 조회에 실패했습니다.'));else resolve(result.rows)};
+    script.onerror=()=>{cleanup();reject(Error('데이터 연결에 실패했습니다. 잠시 후 다시 시도하세요.'))};
+    timer=setTimeout(()=>{cleanup();reject(Error('데이터 조회 시간이 초과되었습니다. 잠시 후 다시 시도하세요.'))},120000);
+    script.src=companyFeed+'?'+new URLSearchParams({dataset,callback});
     document.head.appendChild(script);
   });
 }
@@ -205,3 +195,4 @@ function syncCreativeFilters(){
   update('creativeGroup','adset','전체 그룹',campaigns);
   update('creativeAd','ad','전체 소재',campaigns.filter(r=>!$('creativeGroup').value||r.adset===$('creativeGroup').value));
 }
+
