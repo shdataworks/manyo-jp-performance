@@ -1,4 +1,4 @@
-# ma:nyo JP Performance Dashboard
+#JP Performance Dashboard
 
 공개 대시보드: https://shdataworks.github.io/manyo-jp-performance/
 
