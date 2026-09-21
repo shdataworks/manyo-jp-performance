@@ -49,7 +49,7 @@ function drawChart(rs){
   const xx=i=>L+(i+.5)*step,yy=(v,max)=>T+ih-v/max*ih;
   const pct=key=>['roas','ctr'].includes(key);
   const axis=(v,key)=>pct(key)?axisNumber(v*100)+'%':Math.abs(v)>=100000000?axisNumber(v/100000000)+'억':Math.abs(v)>=10000?axisNumber(v/10000)+'만':axisNumber(v);
-  const value=(v,key)=>fmt(v,pct(key))+(v!==null&&['cost','sales'].includes(key)?'원':'');
+  const value=(v,key)=>fmt(v,pct(key))+(v!==null&&['cost','sales','cpc'].includes(key)?(view==='keyword'?'엔':'원'):'');
   const grid=Array.from({length:6},(_,i)=>{const part=1-i/5,y=T+i*ih/5;return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#e8edf4"/><text x="${L-10}" y="${y+4}" text-anchor="end" fill="#527cad" font-size="12">${axis(barMax*part,barKey)}</text><text x="${W-R+10}" y="${y+4}" fill="#b96a24" font-size="12">${axis(lineMax*part,lineKey)}</text>`}).join('');
   const bars=a.map((r,i)=>r[barKey]==null?'':`<rect x="${xx(i)-bw/2}" y="${yy(r[barKey],barMax)}" width="${bw}" height="${Math.max(0,r[barKey]/barMax*ih)}" rx="2" fill="#8cafd5"><title>${esc(r.name)} · ${esc(barLabel)}: ${value(r[barKey],barKey)}</title></rect>`).join('');
   let connected=false;
