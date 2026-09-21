@@ -88,21 +88,19 @@ Promise.all([fetch('data.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error
 
 // Read-only feed executed by the company Google account.
 const companyFeed = 'https://script.google.com/macros/s/AKfycbyyQaOb05tdY1ZD5cdnjMNTCnCCxwjt7fzRcmXkEjakZzuog6m2Syo72SAKf3tChtDrcA/exec';
-function readLiveSheet(sheet){
-  return new Promise((resolve,reject)=>{
-    const dataset=({'AMZ JP RAW':'performance','AMZ JP Keywords Raw':'keywords'})[sheet];
-    if(!dataset){reject(Error('지원하지 않는 데이터입니다.'));return;}
-    const callback='manyoSheet_'+Date.now()+'_'+Math.random().toString(36).slice(2);
-    const script=document.createElement('script');
-    script.crossOrigin='anonymous';
-    let timer;
-    const cleanup=()=>{clearTimeout(timer);script.remove();delete window[callback]};
-    window[callback]=result=>{cleanup();if(result.error||!Array.isArray(result.rows))reject(Error('회사 계정 데이터 연결에서 조회에 실패했습니다.'));else resolve(result.rows)};
-    script.onerror=()=>{cleanup();reject(Error('데이터 연결에 실패했습니다. 잠시 후 다시 시도하세요.'))};
-    timer=setTimeout(()=>{cleanup();reject(Error('데이터 조회 시간이 초과되었습니다. 잠시 후 다시 시도하세요.'))},120000);
-    script.src=companyFeed+'?'+new URLSearchParams({dataset,callback});
-    document.head.appendChild(script);
-  });
+async function readLiveSheet(sheet){
+  const dataset=({'AMZ JP RAW':'performance','AMZ JP Keywords Raw':'keywords'})[sheet];
+  if(!dataset)throw Error('지원하지 않는 데이터입니다.');
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),120000);
+  try{
+    const response=await fetch(companyFeed+'?'+new URLSearchParams({dataset}),{credentials:'omit',signal:controller.signal});
+    if(!response.ok)throw Error('데이터 연결 응답 오류: '+response.status);
+    const result=await response.json();
+    if(result.error||!Array.isArray(result.rows))throw Error('회사 계정 데이터 조회에 실패했습니다.');
+    return result.rows;
+  }catch(error){throw Error(error.name==='AbortError'?'데이터 조회 시간이 초과되었습니다. 잠시 후 다시 시도하세요.':error.message);}
+  finally{clearTimeout(timer);}
 }
 $('refresh').onclick=async()=>{
   if($('refresh').disabled)return;
