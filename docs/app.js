@@ -84,48 +84,118 @@ $('file').onchange=async e=>{try{const f=e.target.files[0];if(!f)return;let next
 $('export').onclick=()=>{const columns=activeColumns();const encode=v=>'"'+String(v??'').replace(/"/g,'""')+'"';let csv='\uFEFF'+[columns.map(x=>x[1]).concat('추정치 포함'),...tableRows.map(r=>columns.map(([k])=>r[k]).concat(r.estimate?'예':'아니오'))].map(r=>r.map(encode).join(',')).join('\r\n');const u=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'})),a=document.createElement('a');a.href=u;a.download='JP_performance_'+$('group').value+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
 function latestDate(rs){return rs.reduce((latest,r)=>r.date>latest?r.date:latest,'')}
 function dataStatus(label){return `Google Sheets · 성과 ${nf.format(rows.length)}행 (${latestDate(rows)}까지) · 키워드 ${nf.format(keywordRows.length)}행 (${latestDate(keywordRows)}까지) · ${label}`}
-Promise.all([fetch('data.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('성과 데이터 파일을 열 수 없습니다.');return r.json()}),fetch('keywords.json',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error('키워드 데이터 파일을 열 수 없습니다.');return r.json()})]).then(([d,k])=>{rows=normalize(d.rows);keywordRows=normalizeKeywords(k.rows);$('status').textContent=dataStatus('저장된 데이터 · 원본 확인 중');initialize()}).catch(e=>{$('status').textContent='저장된 데이터 불러오기 실패: '+e.message}).finally(()=>{$('refresh').disabled=false;$('refreshSource').disabled=false;$('refresh').onclick()});
-
-// Read-only feed executed by the company Google account.
+// Load each dataset independently; a failed keyword request must not discard performance data.
 const companyFeed = 'https://script.google.com/macros/s/AKfycbyyQaOb05tdY1ZD5cdnjMNTCnCCxwjt7fzRcmXkEjakZzuog6m2Syo72SAKf3tChtDrcA/exec';
-async function readLiveSheet(sheet){
-  const dataset=({'AMZ JP RAW':'performance','AMZ JP Keywords Raw':'keywords'})[sheet];
-  if(!dataset)throw Error('지원하지 않는 데이터입니다.');
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),120000);
+const dataSources = [
+  {id:'performance',label:'성과',file:'data.json',normalize,read:()=>rows,write:value=>{rows=value}},
+  {id:'keywords',label:'키워드',file:'keywords.json',normalize:normalizeKeywords,read:()=>keywordRows,write:value=>{keywordRows=value}}
+];
+const sourceStates = Object.fromEntries(dataSources.map(source=>[source.id,{message:'저장본 확인 중',error:''}]));
+function updateDataStatus(){
+  $('status').textContent='Google Sheets · '+dataSources.map(source=>{
+    const data=source.read(),state=sourceStates[source.id];
+    return `${source.label} ${nf.format(data.length)}행 (${latestDate(data)||'날짜 없음'}까지) · ${state.message}`;
+  }).join(' / ');
+  const failures=dataSources.filter(source=>sourceStates[source.id].error);
+  $('refreshStatus').dataset.error=String(failures.length>0);
+  $('refreshStatus').textContent=failures.map(source=>{
+    const state=sourceStates[source.id];
+    return `${source.label} 갱신 실패: ${state.error} ${source.read().length?'기존 데이터 표시 중입니다.':'표시할 데이터가 없습니다.'}`;
+  }).join(' ');
+}
+async function fetchDataset(url,onRetry=()=>{},attempts=3){
+  for(let attempt=0;attempt<attempts;attempt++){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),45000);
+    let retry=false;
+    try{
+      // A unique request URL also avoids reusing a stale Apps Script redirect.
+      const requestUrl=new URL(url,location.href);
+      requestUrl.searchParams.set('_',Date.now()+'-'+attempt);
+      const response=await fetch(requestUrl.href,{cache:'no-store',credentials:'omit',signal:controller.signal});
+      if(!response.ok){
+        const error=Error('데이터 연결 응답 오류: '+response.status);
+        error.retryable=[404,408,429].includes(response.status)||response.status>=500;
+        throw error;
+      }
+      const result=await response.json();
+      if(result.error||!Array.isArray(result.rows)||!Array.isArray(result.rows[0])){
+        const error=Error('데이터 응답 형식을 확인해 주세요.');
+        error.retryable=false;
+        throw error;
+      }
+      return result.rows;
+    }catch(error){
+      retry=attempt+1<attempts&&error.retryable!==false;
+      if(!retry)throw Error(error.name==='AbortError'?'데이터 조회 시간이 초과되었습니다.':error.message);
+    }finally{clearTimeout(timer)}
+    if(retry){
+      onRetry(attempt+2,attempts);
+      await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
+    }
+  }
+}
+function normalizeDataset(source,matrix){
+  const data=source.normalize(matrix);
+  if(!data.length)throw Error('시트에 데이터 행이 없어 기존 데이터를 유지했습니다.');
+  return data;
+}
+function renderUpdatedData(){
+  // Read controls at completion time, so navigation and filters changed while loading survive.
+  const ids=['start','end','media','product','type','campaign','keyword','creativeGroup','creativeAd'];
+  const filters=Object.fromEntries(ids.map(id=>[id,$(id).value]));
+  refreshFilters();
+  for(const id of ids){
+    if(['start','end'].includes(id)||[...$(id).options].some(option=>option.value===filters[id]))$(id).value=filters[id];
+  }
+  if(datePreset)applyDatePreset(datePreset);
+  page=0;render();
+}
+async function refreshDataset(source){
+  const state=sourceStates[source.id];
+  state.message='원본 조회 중';state.error='';updateDataStatus();
   try{
-    const response=await fetch(companyFeed+'?'+new URLSearchParams({dataset}),{credentials:'omit',signal:controller.signal});
-    if(!response.ok)throw Error('데이터 연결 응답 오류: '+response.status);
-    const result=await response.json();
-    if(result.error||!Array.isArray(result.rows))throw Error('회사 계정 데이터 조회에 실패했습니다.');
-    return result.rows;
-  }catch(error){throw Error(error.name==='AbortError'?'데이터 조회 시간이 초과되었습니다. 잠시 후 다시 시도하세요.':error.message);}
-  finally{clearTimeout(timer);}
+    const url=companyFeed+'?'+new URLSearchParams({dataset:source.id});
+    const matrix=await fetchDataset(url,(attempt,total)=>{
+      state.message=`연결 재시도 ${attempt}/${total}`;updateDataStatus();
+    });
+    const next=normalizeDataset(source,matrix);
+    source.write(next);
+    sourceLabel='Google Sheets';
+    state.message='원본 조회 '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' KST';
+    renderUpdatedData();
+  }catch(error){
+    state.error=error.message;state.message=source.read().length?'갱신 실패 · 기존 데이터':'불러오기 실패';
+  }
+  updateDataStatus();
 }
 $('refresh').onclick=async()=>{
   if($('refresh').disabled)return;
-  $('refresh').disabled=true;$('refreshSource').disabled=true;$('refreshSource').textContent='↻ 불러오는 중…';$('refresh').textContent='↻ 불러오는 중…';
-  $('refreshStatus').dataset.error='false';$('refreshStatus').textContent='구글 시트에서 최신 성과·키워드 데이터를 가져오는 중입니다…';
+  $('refresh').disabled=true;$('refreshSource').disabled=true;
+  $('refresh').textContent='↻ 불러오는 중…';$('refreshSource').textContent='↻ 불러오는 중…';
   try{
-    const [data,keywords]=await Promise.all([readLiveSheet('AMZ JP RAW'),readLiveSheet('AMZ JP Keywords Raw')]);
-    const nextRows=normalize(data),nextKeywords=normalizeKeywords(keywords);
-    if(!nextRows.length||!nextKeywords.length)throw Error('시트에 데이터 행이 없어 기존 데이터를 유지했습니다.');
-    // Capture current controls after loading so navigation during the request is respected.
-    const ids=['start','end','media','product','type','campaign','keyword','creativeGroup','creativeAd'];
-    const filters=Object.fromEntries(ids.map(id=>[id,$(id).value]));
-    const currentPreset=datePreset;
-    rows=nextRows;keywordRows=nextKeywords;sourceLabel='Google Sheets';
-    refreshFilters();
-    for(const id of ids){if(['start','end'].includes(id)||[...$(id).options].some(o=>o.value===filters[id]))$(id).value=filters[id]}
-    if(currentPreset)applyDatePreset(currentPreset);
-    page=0;render();
-    $('status').textContent=dataStatus('원본 조회 '+new Date().toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+' KST');
-    $('refreshStatus').textContent='최신 구글 시트 데이터를 적용했습니다.';
-  }catch(e){$('status').textContent=dataStatus('원본 조회 실패 · 기존 데이터 표시');$('refreshStatus').dataset.error='true';$('refreshStatus').textContent='새로고침 실패: '+e.message+' 기존 데이터는 유지됩니다.'}
-  finally{$('refresh').disabled=false;$('refreshSource').disabled=false;$('refreshSource').textContent='↻ 지금 데이터 새로 가져오기';$('refresh').textContent='↻ 데이터 새로고침'}
+    await Promise.allSettled(dataSources.map(refreshDataset));
+    updateDataStatus();
+    if(dataSources.every(source=>!sourceStates[source.id].error))$('refreshStatus').textContent='최신 성과·키워드 데이터를 적용했습니다.';
+  }finally{
+    $('refresh').disabled=false;$('refreshSource').disabled=false;
+    $('refresh').textContent='↻ 데이터 새로고침';$('refreshSource').textContent='↻ 지금 데이터 새로 가져오기';
+  }
 };
-
 $('refreshSource').onclick=()=> $('refresh').onclick();
+async function loadStoredData(){
+  await Promise.allSettled(dataSources.map(async source=>{
+    const state=sourceStates[source.id];
+    try{
+      const matrix=await fetchDataset(source.file,()=>{},2);
+      source.write(normalizeDataset(source,matrix));state.message='저장본 · 원본 확인 대기';
+    }catch(error){state.message='저장본 없음 · 원본 확인 대기'}
+  }));
+  updateDataStatus();initialize();
+  $('refresh').disabled=false;$('refreshSource').disabled=false;
+  await $('refresh').onclick();
+}
+loadStoredData();
 
 function syncKeywordPicker(){
   $('keywordToggle').textContent=$('keyword').selectedOptions[0]?.text||'전체 키워드';
@@ -194,5 +264,3 @@ function syncCreativeFilters(){
   update('creativeGroup','adset','전체 그룹',campaigns);
   update('creativeAd','ad','전체 소재',campaigns.filter(r=>!$('creativeGroup').value||r.adset===$('creativeGroup').value));
 }
-
-
