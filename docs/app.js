@@ -1,12 +1,15 @@
 const $=id=>document.getElementById(id), metrics=['cost','imp','click','view','3s-view','like','coment','share','save','shop now click','dpv','cart','purchase','sales'];
 let rows=[],keywordRows=[],view='overview',page=0,sortKey='cost',sortDir=-1,tableRows=[],sourceLabel='Google Sheets 사본';
+// Original sheet assumption: 2,700 JPY at 8.8563 KRW/JPY; not a live FX quote.
+const META_ESTIMATE={purchaseRate:0.05,priceJpy:2700,krwPerJpy:8.8563};
+function applyMetaEstimate(r){if(r.media==='meta'){r.purchase=r['shop now click']*META_ESTIMATE.purchaseRate;r.sales=Math.round(r.purchase*META_ESTIMATE.priceJpy*META_ESTIMATE.krwPerJpy);}return r;}
 const nf=new Intl.NumberFormat('ko-KR',{maximumFractionDigits:2});
 const fmt=(x,p=false)=>x===null?'—':p?(x*100).toFixed(2)+'%':nf.format(x);
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ratio=(a,b)=>b?a/b:null;
 function dateOf(v){if(typeof v==='number')return new Date(Date.UTC(1899,11,30)+v*86400000).toISOString().slice(0,10);let s=String(v??'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);let d=new Date(s);return Number.isNaN(+d)?'':d.toISOString().slice(0,10)}
 function week(d){let x=new Date(d+'T00:00:00Z');x.setUTCDate(x.getUTCDate()-(x.getUTCDay()+6)%7);return x.toISOString().slice(0,10)}
-function normalize(matrix){const heads=matrix[0].map(x=>String(x).replace(/^\uFEFF/,'').trim());for(const k of ['date','media','cost','imp','click','purchase','sales'])if(!heads.includes(k))throw Error('필수 열이 없습니다: '+k);return matrix.slice(1).filter(a=>a.some(v=>v!==null&&v!=='')).map(a=>{let r=Object.fromEntries(heads.map((h,i)=>[h,a[i]??'']));r.date=dateOf(r.date);if(!r.date)throw Error('날짜를 읽을 수 없는 행이 있습니다. yyyy-mm-dd 형식으로 저장하세요.');r.media=String(r.media).toLowerCase();r.product=r.product||'미분류';for(const k of metrics){let v=String(r[k]??'').replace(/,/g,'').trim();r[k]=v===''?0:Number(v);if(!Number.isFinite(r[k]))throw Error(k+' 열에 숫자가 아닌 값이 있습니다.');}r.week=week(r.date);r.month=r.date.slice(0,7);return r;})}
+function normalize(matrix){const heads=matrix[0].map(x=>String(x).replace(/^\uFEFF/,'').trim());for(const k of ['date','media','cost','imp','click','purchase','sales'])if(!heads.includes(k))throw Error('필수 열이 없습니다: '+k);return matrix.slice(1).filter(a=>a.some(v=>v!==null&&v!=='')).map(a=>{let r=Object.fromEntries(heads.map((h,i)=>[h,a[i]??'']));r.date=dateOf(r.date);if(!r.date)throw Error('날짜를 읽을 수 없는 행이 있습니다. yyyy-mm-dd 형식으로 저장하세요.');r.media=String(r.media).toLowerCase();r.product=r.product||'미분류';for(const k of metrics){let v=String(r[k]??'').replace(/,/g,'').trim();r[k]=v===''?0:Number(v);if(!Number.isFinite(r[k]))throw Error(k+' 열에 숫자가 아닌 값이 있습니다.');}applyMetaEstimate(r);r.week=week(r.date);r.month=r.date.slice(0,7);return r;})}
 function normalizeKeywords(matrix){const heads=matrix[0].map(x=>String(x).replace(/^\uFEFF/,'').trim());const firstHeads=heads.map((h,i)=>heads.indexOf(h)===i?h:null);for(const k of ['date','keyword','cost','imp','click','purchase','sales'])if(!heads.includes(k))throw Error('키워드 필수 열이 없습니다: '+k);return matrix.slice(1).filter(a=>a.some(v=>v!==null&&v!=='')).map(a=>{let r=Object.fromEntries(firstHeads.flatMap((h,i)=>h?[[h,a[i]??'']]:[]));r.date=dateOf(r.date);if(!r.date)throw Error('키워드 날짜를 읽을 수 없는 행이 있습니다.');r.media='amazon';r.keyword=String(r.keyword??'').trim();r.asin=String(r.asin||'미지정');r.product=r.asin;r.ad='';for(const k of metrics){let v=String(r[k]??'').replace(/,/g,'').trim();r[k]=v===''?0:Number(v);if(!Number.isFinite(r[k]))throw Error(k+' 열에 숫자가 아닌 값이 있습니다.');}r.week=week(r.date);r.month=r.date.slice(0,7);return r})}
 function sum(rs){let s=Object.fromEntries(metrics.map(k=>[k,0]));rs.forEach(r=>metrics.forEach(k=>s[k]+=r[k]));s.ctr=ratio(s.click,s.imp);s.cpc=ratio(s.cost,s.click);s.cpm=s.imp?s.cost/s.imp*1000:null;s.cvr=ratio(s.purchase,s.click);s.roas=ratio(s.sales,s.cost);s.acos=ratio(s.cost,s.sales);s.vtr=ratio(s.view,s.imp);s.er=ratio(s.like+s.coment+s.share+s.save,s.imp);return s}
 function group(rs,k){let map=new Map();rs.forEach(r=>{let key=r[k]||'미지정';if(!map.has(key))map.set(key,[]);map.get(key).push(r)});return [...map].map(([name,a])=>({name,...sum(a),estimate:a.some(x=>x.media==='meta'),mixed:new Set(a.map(x=>x.media)).size>1}))}
@@ -27,7 +30,7 @@ function applyDatePreset(preset){datePreset=preset;const dates=preset==='all'?ac
 function initialize(){applyDatePreset('month');refreshFilters();page=0;render()}
 
 function selected(){return activeRows().filter(r=>(!$('start').value||r.date>=$('start').value)&&(!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)&&(!['keyword','campaign','creative'].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)&&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)&&(!(view==='amazon'||view==='meta')||r.media===view)&&(view!=='creative'||(r.ad&&(!$('creativeGroup').value||r.adset===$('creativeGroup').value)&&(!$('creativeAd').value||r.ad===$('creativeAd').value))))}
-function render(){syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'RAW 추정값':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],['ROAS',fmt(s.roas,true),'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
+function render(){syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
 $('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);bars('channels',group(rs,'media'),true);bars('products',group(rs,'product').sort((a,b)=>b.cost-a.cost).slice(0,5));let k=view==='keyword'?'keyword':$('group').value;tableRows=group(rs,k).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
 function bars(id,data,channel=false){let total=data.reduce((s,r)=>s+r.cost,0),symbol=view==='keyword'?'¥':'₩';$(id).innerHTML=data.length?data.map((r,i)=>`<div class="barrow"><div class="barlabel"><span>${esc(r.name)}</span><strong>${symbol}${fmt(r.cost)}</strong></div><div class="track"><div class="fill" style="width:${total?r.cost/total*100:0}%;background:${i===1?'#8dabc9':'#3568a8'}"></div></div>${channel?`<div class="mini">클릭 ${fmt(r.click)} · CPC ${symbol}${fmt(r.cpc)} · ROAS ${fmt(r.roas,true)}</div>`:''}</div>`).join(''):'<div class="empty">해당 데이터가 없습니다.</div>'}
 function niceAxisMax(peak,percent=false){
@@ -90,9 +93,30 @@ const dataSources = [
   {id:'performance',label:'성과',file:'data.json',normalize,read:()=>rows,write:value=>{rows=value}},
   {id:'keywords',label:'키워드',file:'keywords.json',normalize:normalizeKeywords,read:()=>keywordRows,write:value=>{keywordRows=value}}
 ];
+// Keep the last successful response across reloads without changing the source sheet.
+const snapshotSavedAt=Date.parse('2026-09-30T06:18:17.068Z');
+function datasetCache(mode,id,value){
+  return new Promise((resolve,reject)=>{
+    if(!globalThis.indexedDB){resolve(null);return;}
+    const request=indexedDB.open('manyo-jp-datasets',1);
+    request.onupgradeneeded=()=>request.result.createObjectStore('datasets');
+    request.onerror=()=>reject(request.error);
+    request.onblocked=()=>resolve(null);
+    request.onsuccess=()=>{
+      const db=request.result;
+      const tx=db.transaction('datasets',mode);
+      const store=tx.objectStore('datasets');
+      const operation=mode==='readonly'?store.get(id):store.put(value,id);
+      tx.oncomplete=()=>{const result=operation.result;db.close();resolve(result)};
+      tx.onerror=()=>{db.close();reject(tx.error)};
+      tx.onabort=()=>{db.close();reject(tx.error||Error('저장 취소'))};
+    };
+  });
+}
+function saveDatasetCache(id,matrix){return datasetCache('readwrite',id,{matrix,savedAt:Date.now()})}
 const sourceStates = Object.fromEntries(dataSources.map(source=>[source.id,{message:'저장본 확인 중',error:''}]));
 function updateDataStatus(){
-  $('status').textContent='Google Sheets · '+dataSources.map(source=>{
+  $('status').textContent='v2026.09.30-2 · Google Sheets · '+dataSources.map(source=>{
     const data=source.read(),state=sourceStates[source.id];
     return `${source.label} ${nf.format(data.length)}행 (${latestDate(data)||'날짜 없음'}까지) · ${state.message}`;
   }).join(' / ');
@@ -100,7 +124,7 @@ function updateDataStatus(){
   $('refreshStatus').dataset.error=String(failures.length>0);
   $('refreshStatus').textContent=failures.map(source=>{
     const state=sourceStates[source.id];
-    return `${source.label} 갱신 실패: ${state.error} ${source.read().length?'기존 데이터 표시 중입니다.':'표시할 데이터가 없습니다.'}`;
+    return source.read().length?`${source.label} 실시간 갱신 미완료 (${state.error}). ${latestDate(source.read())}까지 확인된 데이터를 표시합니다.`:`${source.label} 불러오기 실패: ${state.error}`;
   }).join(' ');
 }
 async function fetchDataset(url,onRetry=()=>{},attempts=3){
@@ -160,12 +184,14 @@ async function refreshDataset(source){
       state.message=`연결 재시도 ${attempt}/${total}`;updateDataStatus();
     });
     const next=normalizeDataset(source,matrix);
+    if(source.read().length&&latestDate(next)<latestDate(source.read()))throw Error('원본 응답의 마지막 날짜가 저장된 데이터보다 이전이어서 최신 저장본을 유지합니다.');
     source.write(next);
+    saveDatasetCache(source.id,matrix).catch(()=>{});
     sourceLabel='Google Sheets';
     state.message='원본 조회 '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' KST';
     renderUpdatedData();
   }catch(error){
-    state.error=error.message;state.message=source.read().length?'갱신 실패 · 기존 데이터':'불러오기 실패';
+    state.error=error.message;state.message=source.read().length?'실시간 연결 지연 · 확인된 데이터 표시':'불러오기 실패';
   }
   updateDataStatus();
 }
@@ -186,10 +212,19 @@ $('refreshSource').onclick=()=> $('refresh').onclick();
 async function loadStoredData(){
   await Promise.allSettled(dataSources.map(async source=>{
     const state=sourceStates[source.id];
+    let cached=null;
+    try{
+      cached=await datasetCache('readonly',source.id);
+      if(cached){source.write(normalizeDataset(source,cached.matrix));state.message='브라우저 저장본 · 원본 확인 대기';updateDataStatus();renderUpdatedData();}
+    }catch(error){cached=null}
     try{
       const matrix=await fetchDataset(source.file,()=>{},2);
-      source.write(normalizeDataset(source,matrix));state.message='저장본 · 원본 확인 대기';
-    }catch(error){state.message='저장본 없음 · 원본 확인 대기'}
+      const snapshot=normalizeDataset(source,matrix);
+      const newer=latestDate(snapshot)>latestDate(source.read());
+      if(!cached||newer||(latestDate(snapshot)===latestDate(source.read())&&snapshotSavedAt>cached.savedAt)){
+        source.write(snapshot);state.message='배포 저장본 · 원본 확인 대기';
+      }
+    }catch(error){if(!source.read().length)state.message='저장본 없음 · 원본 확인 대기'}
   }));
   updateDataStatus();initialize();
   $('refresh').disabled=false;$('refreshSource').disabled=false;
