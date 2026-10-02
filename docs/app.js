@@ -9,7 +9,7 @@ const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const ratio=(a,b)=>b?a/b:null;
 function dateOf(v){if(typeof v==='number')return new Date(Date.UTC(1899,11,30)+v*86400000).toISOString().slice(0,10);let s=String(v??'').trim();if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);let d=new Date(s);return Number.isNaN(+d)?'':d.toISOString().slice(0,10)}
 function week(d){let x=new Date(d+'T00:00:00Z');x.setUTCDate(x.getUTCDate()-(x.getUTCDay()+6)%7);return x.toISOString().slice(0,10)}
-function normalize(matrix){const heads=matrix[0].map(x=>String(x).replace(/^\uFEFF/,'').trim());for(const k of ['date','media','cost','imp','click','purchase','sales'])if(!heads.includes(k))throw Error('필수 열이 없습니다: '+k);return matrix.slice(1).filter(a=>a.some(v=>v!==null&&v!=='')).map(a=>{let r=Object.fromEntries(heads.map((h,i)=>[h,a[i]??'']));r.date=dateOf(r.date);if(!r.date)throw Error('날짜를 읽을 수 없는 행이 있습니다. yyyy-mm-dd 형식으로 저장하세요.');r.media=String(r.media).toLowerCase();r.product=r.product||'미분류';for(const k of metrics){let v=String(r[k]??'').replace(/,/g,'').trim();r[k]=v===''?0:Number(v);if(!Number.isFinite(r[k]))throw Error(k+' 열에 숫자가 아닌 값이 있습니다.');}applyMetaEstimate(r);r.week=week(r.date);r.month=r.date.slice(0,7);return r;})}
+function normalize(matrix){const heads=matrix[0].map(x=>String(x).replace(/^\uFEFF/,'').trim());for(const k of ['date','media','cost','imp','click','purchase','sales'])if(!heads.includes(k))throw Error('필수 열이 없습니다: '+k);return matrix.slice(1).filter(a=>a.some(v=>v!==null&&v!=='')).map(a=>{let r=Object.fromEntries(heads.map((h,i)=>[h,a[i]??'']));r.date=dateOf(r.date);if(!r.date)throw Error('날짜를 읽을 수 없는 행이 있습니다. yyyy-mm-dd 형식으로 저장하세요.');r.media=String(r.media).trim().toLowerCase();r.product=r.product||'미분류';for(const k of metrics){let v=String(r[k]??'').replace(/,/g,'').trim();r[k]=v===''?0:Number(v);if(!Number.isFinite(r[k]))throw Error(k+' 열에 숫자가 아닌 값이 있습니다.');}applyMetaEstimate(r);r.week=week(r.date);r.month=r.date.slice(0,7);return r;})}
 function normalizeKeywords(matrix){const heads=matrix[0].map(x=>String(x).replace(/^\uFEFF/,'').trim());const firstHeads=heads.map((h,i)=>heads.indexOf(h)===i?h:null);for(const k of ['date','keyword','cost','imp','click','purchase','sales'])if(!heads.includes(k))throw Error('키워드 필수 열이 없습니다: '+k);return matrix.slice(1).filter(a=>a.some(v=>v!==null&&v!=='')).map(a=>{let r=Object.fromEntries(firstHeads.flatMap((h,i)=>h?[[h,a[i]??'']]:[]));r.date=dateOf(r.date);if(!r.date)throw Error('키워드 날짜를 읽을 수 없는 행이 있습니다.');r.media='amazon';r.keyword=String(r.keyword??'').trim();r.asin=String(r.asin||'미지정');r.product=r.asin;r.ad='';for(const k of metrics){let v=String(r[k]??'').replace(/,/g,'').trim();r[k]=v===''?0:Number(v);if(!Number.isFinite(r[k]))throw Error(k+' 열에 숫자가 아닌 값이 있습니다.');}r.week=week(r.date);r.month=r.date.slice(0,7);return r})}
 function sum(rs){let s=Object.fromEntries(metrics.map(k=>[k,0]));rs.forEach(r=>metrics.forEach(k=>s[k]+=r[k]));s.ctr=ratio(s.click,s.imp);s.cpc=ratio(s.cost,s.click);s.cpm=s.imp?s.cost/s.imp*1000:null;s.cvr=ratio(s.purchase,s.click);s.roas=ratio(s.sales,s.cost);s.acos=ratio(s.cost,s.sales);s.vtr=ratio(s.view,s.imp);s.er=ratio(s.like+s.coment+s.share+s.save,s.imp);return s}
 function group(rs,k){let map=new Map();rs.forEach(r=>{let key=r[k]||'미지정';if(!map.has(key))map.set(key,[]);map.get(key).push(r)});return [...map].map(([name,a])=>({name,...sum(a),estimate:a.some(x=>x.media==='meta'),mixed:new Set(a.map(x=>x.media)).size>1}))}
@@ -114,9 +114,9 @@ function datasetCache(mode,id,value){
   });
 }
 function saveDatasetCache(id,matrix){return datasetCache('readwrite',id,{matrix,savedAt:Date.now()})}
-const sourceStates = Object.fromEntries(dataSources.map(source=>[source.id,{message:'저장본 확인 중',error:''}]));
+const sourceStates = Object.fromEntries(dataSources.map(source=>[source.id,{message:'저장본 확인 중',error:'',history:''}]));
 function updateDataStatus(){
-  $('status').textContent='v2026.09.30-2 · Google Sheets · '+dataSources.map(source=>{
+  $('status').textContent='v2026.10.02 · Google Sheets · '+dataSources.map(source=>{
     const data=source.read(),state=sourceStates[source.id];
     return `${source.label} ${nf.format(data.length)}행 (${latestDate(data)||'날짜 없음'}까지) · ${state.message}`;
   }).join(' / ');
@@ -126,6 +126,8 @@ function updateDataStatus(){
     const state=sourceStates[source.id];
     return source.read().length?`${source.label} 실시간 갱신 미완료 (${state.error}). ${latestDate(source.read())}까지 확인된 데이터를 표시합니다.`:`${source.label} 불러오기 실패: ${state.error}`;
   }).join(' ');
+  const history=dataSources.map(source=>sourceStates[source.id].history).filter(Boolean).join(' · ');
+  if(history)$('refreshStatus').textContent+=($('refreshStatus').textContent?' ':'')+'원본에 없는 기간: '+history;
 }
 async function fetchDataset(url,onRetry=()=>{},attempts=3){
   for(let attempt=0;attempt<attempts;attempt++){
@@ -164,6 +166,26 @@ function normalizeDataset(source,matrix){
   if(!data.length)throw Error('시트에 데이터 행이 없어 기존 데이터를 유지했습니다.');
   return data;
 }
+// Each response is authoritative for the media/month partitions it contains.
+// Absent months are retained as history, not appended to overlapping partitions.
+function historyPartition(source,row){return (source.id==='performance'?row.media+'|':'')+row.month}
+function reconcileHistory(source,previous,incoming){
+  const supplied=new Set(incoming.map(row=>historyPartition(source,row)));
+  const retained=previous.filter(row=>!supplied.has(historyPartition(source,row)));
+  return {rows:[...retained,...incoming],retained};
+}
+function cacheMatrix(records,headers){
+  const columns=[...new Set(headers.map(value=>String(value).replace(/^\uFEFF/,'').trim()))];
+  return [columns,...records.map(row=>columns.map(key=>row[key]??''))];
+}
+function historyNote(source,retained){
+  const groups=new Map();
+  for(const row of retained){const key=historyPartition(source,row);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
+  return [...groups].sort(([a],[b])=>a.localeCompare(b)).map(([key,data])=>{
+    const row=data[0],label=source.id==='performance'?(row.media==='meta'?'Meta':row.media==='amazon'?'Amazon':row.media):'키워드';
+    return `${label} ${row.month} 보관 이력 ${nf.format(data.length)}행 (${latestDate(data)}까지)`;
+  }).join(' · ');
+}
 function renderUpdatedData(){
   // Read controls at completion time, so navigation and filters changed while loading survive.
   const ids=['start','end','media','product','type','campaign','keyword','creativeGroup','creativeAd'];
@@ -185,8 +207,10 @@ async function refreshDataset(source){
     });
     const next=normalizeDataset(source,matrix);
     if(source.read().length&&latestDate(next)<latestDate(source.read()))throw Error('원본 응답의 마지막 날짜가 저장된 데이터보다 이전이어서 최신 저장본을 유지합니다.');
-    source.write(next);
-    saveDatasetCache(source.id,matrix).catch(()=>{});
+    const merged=reconcileHistory(source,source.read(),next);
+    source.write(merged.rows);
+    state.history=historyNote(source,merged.retained);
+    saveDatasetCache(source.id,cacheMatrix(merged.rows,matrix[0])).catch(()=>{});
     sourceLabel='Google Sheets';
     state.message='원본 조회 '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' KST';
     renderUpdatedData();
@@ -202,7 +226,10 @@ $('refresh').onclick=async()=>{
   try{
     await Promise.allSettled(dataSources.map(refreshDataset));
     updateDataStatus();
-    if(dataSources.every(source=>!sourceStates[source.id].error))$('refreshStatus').textContent='최신 성과·키워드 데이터를 적용했습니다.';
+    if(dataSources.every(source=>!sourceStates[source.id].error)){
+      const history=dataSources.map(source=>sourceStates[source.id].history).filter(Boolean).join(' · ');
+      $('refreshStatus').textContent=history?'최신 응답을 반영했습니다. 원본에 없는 기간은 보관 이력으로 유지합니다: '+history:'최신 성과·키워드 데이터를 적용했습니다.';
+    }
   }finally{
     $('refresh').disabled=false;$('refreshSource').disabled=false;
     $('refresh').textContent='↻ 데이터 새로고침';$('refreshSource').textContent='↻ 지금 데이터 새로 가져오기';
@@ -220,9 +247,15 @@ async function loadStoredData(){
     try{
       const matrix=await fetchDataset(source.file,()=>{},2);
       const snapshot=normalizeDataset(source,matrix);
-      const newer=latestDate(snapshot)>latestDate(source.read());
-      if(!cached||newer||(latestDate(snapshot)===latestDate(source.read())&&snapshotSavedAt>cached.savedAt)){
-        source.write(snapshot);state.message='배포 저장본 · 원본 확인 대기';
+      // A newer cache may still be missing an entire historical media/month.
+      // Always reconcile it with the deployment snapshot, even if its latest date is newer.
+      if(!cached){source.write(snapshot);state.message='배포 저장본 · 원본 확인 대기';}
+      else{
+        const snapshotPreferred=snapshotSavedAt>cached.savedAt;
+        const merged=snapshotPreferred?reconcileHistory(source,source.read(),snapshot):reconcileHistory(source,snapshot,source.read());
+        source.write(merged.rows);state.history=historyNote(source,merged.retained);
+        state.message='브라우저·배포 이력 복원 · 원본 확인 대기';
+        await saveDatasetCache(source.id,cacheMatrix(merged.rows,matrix[0])).catch(()=>{});
       }
     }catch(error){if(!source.read().length)state.message='저장본 없음 · 원본 확인 대기'}
   }));
