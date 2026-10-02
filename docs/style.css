@@ -28,3 +28,8 @@
 .campaign-branch{display:inline-block;vertical-align:top;color:#9badc4;margin:15px 8px 0 0}
 .campaign-name{display:inline-block;max-width:calc(100% - 24px);line-height:1.5;color:#263f60}
 .campaign-name small{display:block;font-size:10px;color:#8795a8;margin-bottom:2px}
+
+#table .campaign-toggle{display:flex;align-items:center;gap:5px;margin-top:5px;padding:3px 7px;border:1px solid #d6e1f0;border-radius:5px;background:#fff;color:#47658b;font-size:11px;font-weight:400;cursor:pointer;white-space:nowrap}
+#table .campaign-toggle:hover{background:#e7eef9;border-color:#9ab2d4}
+#table .campaign-toggle:focus-visible{outline:2px solid #3568a8;outline-offset:2px}
+#table .toggle-action{margin-left:3px;color:#667e9f}
