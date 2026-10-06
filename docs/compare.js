@@ -66,7 +66,7 @@ function renderComparison(){
   cmpResults=compareAggregate(data,a,b,cmpKeys()).filter(r=>r.parts.join(' ').toLowerCase().includes(q));
   const columns=cmpColumns(metric,unit);
   if(cmpTableSort&&!columns.some(c=>c.key===cmpTableSort.key))cmpTableSort=null;
-  const order=$('cmpOrder').value;
+  const order=$('cmpOrder').value==='table'?'abs':$('cmpOrder').value;
   cmpResults.sort((x,y)=>cmpTableSort?cmpCompareRows(x,y,cmpTableSort.key,cmpTableSort.dir,metric):order==='abs'?(Math.abs(cmpDelta(y,metric)||0)-Math.abs(cmpDelta(x,metric)||0)||x.id.localeCompare(y.id)):cmpCompareRows(x,y,'delta',order==='up'?-1:1,metric));
   $('cmpOrder').value=cmpTableSort?'table':order==='table'?'abs':order;
   $('cmpSummary').innerHTML=cmpSummary(total,cmpResults,ar,br,unit,warnings);
@@ -150,4 +150,5 @@ function initComparison(){
   if(view==='compare')renderComparison();
 }
 initComparison();
+
 
