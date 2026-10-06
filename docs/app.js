@@ -106,10 +106,10 @@ function drawChart(rs){
   const a=group(rs,$('grain').value).sort((x,y)=>x.name.localeCompare(y.name));
   if(!a.length){$('chart').innerHTML='<div class="empty">선택한 조건에 해당하는 추이 데이터가 없습니다.</div>';return}
   const W=1100,H=280,L=90,R=90,T=34,B=35,iw=W-L-R,ih=H-T-B;
-  const maxFor=key=>{const peak=Math.max(0,...a.map(r=>r[key]??0));return niceAxisMax(peak,['roas','ctr'].includes(key))};
+  const maxFor=key=>{const peak=Math.max(0,...a.map(r=>r[key]??0));return niceAxisMax(peak,['roas','ctr','cvr'].includes(key))};
   const barMax=maxFor(barKey),lineMax=maxFor(lineKey),step=iw/a.length,bw=Math.min(40,step*.65);
   const xx=i=>L+(i+.5)*step,yy=(v,max)=>T+ih-v/max*ih;
-  const pct=key=>['roas','ctr'].includes(key);
+  const pct=key=>['roas','ctr','cvr'].includes(key);
   const axis=(v,key)=>pct(key)?axisNumber(v*100)+'%':Math.abs(v)>=100000000?axisNumber(v/100000000)+'억':Math.abs(v)>=10000?axisNumber(v/10000)+'만':axisNumber(v);
   const value=(v,key)=>fmt(v,pct(key))+(v!==null&&['cost','sales','cpc'].includes(key)?(view==='keyword'?'엔':'원'):'');
   const grid=Array.from({length:6},(_,i)=>{const part=1-i/5,y=T+i*ih/5;return `<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="#e8edf4"/><text x="${L-10}" y="${y+4}" text-anchor="end" fill="#527cad" font-size="12">${axis(barMax*part,barKey)}</text><text x="${W-R+10}" y="${y+4}" fill="#b96a24" font-size="12">${axis(lineMax*part,lineKey)}</text>`}).join('');
