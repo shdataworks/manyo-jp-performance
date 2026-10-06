@@ -88,7 +88,7 @@ function syncDateButtons(){document.querySelectorAll('[data-period]').forEach(b=
 function applyDatePreset(preset){datePreset=preset;const dates=preset==='all'?activeRows().map(r=>r.date).sort():[];const range=preset==='all'?[dates[0]||'',dates.at(-1)||'']:presetRange(preset);[$('start').value,$('end').value]=range;syncDateButtons()}
 function initialize(){applyDatePreset('month');refreshFilters();page=0;render()}
 
-function selected(){return activeRows().filter(r=>(!$('start').value||r.date>=$('start').value)&&(!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)&&(!['keyword','campaign','creative'].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)&&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)&&(!(view==='amazon'||view==='meta')||r.media===view)&&(view!=='creative'||(r.ad&&(!$('creativeGroup').value||r.adset===$('creativeGroup').value)&&(!$('creativeAd').value||r.ad===$('creativeAd').value))))}
+function selected(ignoreDates=false){return activeRows().filter(r=>(ignoreDates||!$('start').value||r.date>=$('start').value)&&(ignoreDates||!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)&&(!['keyword','campaign','creative'].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)&&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)&&(!(view==='amazon'||view==='meta')||r.media===view)&&(view!=='creative'||(r.ad&&(!$('creativeGroup').value||r.adset===$('creativeGroup').value)&&(!$('creativeAd').value||r.ad===$('creativeAd').value))))}
 function render(){renderBudget();syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
 $('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);bars('channels',group(rs,'media'),true);bars('products',group(rs,'product').sort((a,b)=>b.cost-a.cost).slice(0,5));let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
 function bars(id,data,channel=false){let total=data.reduce((s,r)=>s+r.cost,0),symbol=view==='keyword'?'¥':'₩';$(id).innerHTML=data.length?data.map((r,i)=>`<div class="barrow"><div class="barlabel"><span>${esc(r.name)}</span><strong>${symbol}${fmt(r.cost)}</strong></div><div class="track"><div class="fill" style="width:${total?r.cost/total*100:0}%;background:${i===1?'#8dabc9':'#3568a8'}"></div></div>${channel?`<div class="mini">클릭 ${fmt(r.click)} · CPC ${symbol}${fmt(r.cpc)} · ROAS ${fmt(r.roas,true)}</div>`:''}</div>`).join(''):'<div class="empty">해당 데이터가 없습니다.</div>'}
@@ -176,7 +176,7 @@ function datasetCache(mode,id,value){
 function saveDatasetCache(id,matrix){return datasetCache('readwrite',id,{matrix,savedAt:Date.now()})}
 const sourceStates = Object.fromEntries(dataSources.map(source=>[source.id,{message:'저장본 확인 중',error:'',history:''}]));
 function updateDataStatus(){
-  $('status').textContent='v2026.10.06 · Google Sheets · '+dataSources.map(source=>{
+  $('status').textContent='v2026.10.06-2 · Google Sheets · '+dataSources.map(source=>{
     const data=source.read(),state=sourceStates[source.id];
     return `${source.label} ${nf.format(data.length)}행 (${latestDate(data)||'날짜 없음'}까지) · ${state.message}`;
   }).join(' / ');
@@ -368,15 +368,16 @@ $('keywordFilter').addEventListener('focusout',e=>{if(!$('keywordFilter').contai
 function drawDailyTable(rs=selected()){
   const picker=$('dailyMonth'), previous=picker.value;
   const months=[...new Set(rs.map(r=>r.date.slice(0,7)))].sort().reverse();
-  picker.innerHTML=months.length?months.map(m=>`<option value="${esc(m)}">${m.slice(0,4)}년 ${Number(m.slice(5))}월</option>`).join(''):'<option value="">데이터 없음</option>';
-  picker.disabled=!months.length;
-  picker.value=months.includes(previous)?previous:(months[0]||'');
-  const filtered=rs.filter(r=>r.date.slice(0,7)===picker.value);
+  picker.innerHTML=(months.length?months.map(m=>`<option value="${esc(m)}">${m.slice(0,4)}년 ${Number(m.slice(5))}월</option>`).join('') :'<option value="">데이터 없음</option>')+'<option value="30days">최근 30일</option>';
+  picker.disabled=false;
+  picker.value=previous==='30days'||months.includes(previous)?previous:(months[0]||'');
+  const recent=picker.value==='30days',[from,to]=presetRange('30days');
+  const filtered=recent?selected(true).filter(r=>r.date>=from&&r.date<=to):rs.filter(r=>r.date.slice(0,7)===picker.value);
   const days=group(filtered,'date').sort((a,b)=>a.name.localeCompare(b.name));
   const cols=activeColumns().map(([k,label])=>[k,k==='name'?'일자':label]);
   const cells=r=>cols.map(([k])=>k==='name'?`<th scope="row">${esc(r.name)}</th>`:`<td>${fmt(r[k],percentages.includes(k))}</td>`).join('');
-  $('dailyTable').innerHTML='<thead><tr>'+cols.map(([,label])=>`<th scope="col">${esc(label)}</th>`).join('')+'</tr></thead><tbody>'+(days.length?days.map(r=>'<tr>'+cells(r)+'</tr>').join(''):`<tr><td colspan="${cols.length}" class="empty">선택한 조건에 해당하는 일자별 데이터가 없습니다.</td></tr>` )+'</tbody>'+(days.length?'<tfoot><tr>'+cells({name:'선택 월 합계',...sum(filtered)})+'</tr></tfoot>':'');
-  $('dailySummary').textContent=days.length?`${picker.value} · ${days.length}일 · 비율 지표는 선택 월 합계 기준으로 재계산`:'';
+  $('dailyTable').innerHTML='<thead><tr>'+cols.map(([,label])=>`<th scope="col">${esc(label)}</th>`).join('')+'</tr></thead><tbody>'+(days.length?days.map(r=>'<tr>'+cells(r)+'</tr>').join(''):`<tr><td colspan="${cols.length}" class="empty">선택한 조건에 해당하는 일자별 데이터가 없습니다.</td></tr>` )+'</tbody>'+(days.length?'<tfoot><tr>'+cells({name:recent?'최근 30일 합계':'선택 월 합계',...sum(filtered)})+'</tr></tfoot>':'');
+  $('dailySummary').textContent=days.length?`${recent?from+' — '+to+' · 최근 30일 (오늘 포함)':picker.value} · ${days.length}일 · 비율 지표는 조회 기간 합계 기준으로 재계산`:'';
 }
 $('dailyMonth').addEventListener('change',()=>drawDailyTable());
 
