@@ -38,3 +38,6 @@
 
 
 .cmp-sort{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;padding:8px 0;white-space:nowrap}.cmp-sort span{margin-left:4px;color:#395f9e}.cmp-sort:focus-visible{outline:2px solid #395f9e;outline-offset:4px}.cmp-summary{border-top:3px solid #395f9e}.cmp-summary-note{color:#71819c;font-size:12px}.cmp-summary #cmpSummary p{line-height:1.85;margin:12px 0;color:#34445e;overflow-wrap:anywhere}.cmp-summary #cmpSummary strong{color:#1b3151;margin-right:8px}
+
+.cmp-story{border:1px solid #dce4ef;border-radius:8px;padding:16px;margin:12px 0}.cmp-story h3{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;font-size:14px;overflow-wrap:anywhere}.cmp-story-group{border-left:3px solid #dce4ef;padding-left:14px;margin:16px 0}.cmp-child{font-size:13px}.cmp-story-title{margin-top:24px}.cmp-story-more{border-bottom:1px solid #e2e8f0;padding:12px 0}.cmp-story-more summary{cursor:pointer;color:#365b91;font-weight:600;overflow-wrap:anywhere}
+

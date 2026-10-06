@@ -69,7 +69,7 @@ function renderComparison(){
   const order=$('cmpOrder').value==='table'?'abs':$('cmpOrder').value;
   cmpResults.sort((x,y)=>cmpTableSort?cmpCompareRows(x,y,cmpTableSort.key,cmpTableSort.dir,metric):order==='abs'?(Math.abs(cmpDelta(y,metric)||0)-Math.abs(cmpDelta(x,metric)||0)||x.id.localeCompare(y.id)):cmpCompareRows(x,y,'delta',order==='up'?-1:1,metric));
   $('cmpOrder').value=cmpTableSort?'table':order==='table'?'abs':order;
-  $('cmpSummary').innerHTML=cmpSummary(total,cmpResults,ar,br,unit,warnings);
+  $('cmpSummary').innerHTML=cmpHierarchySummary(ar,br,unit,keywordRows.filter(r=>r.date>=a[0]&&r.date<=a[1]),keywordRows.filter(r=>r.date>=b[0]&&r.date<=b[1]),warnings);
   const ranking=(key,up)=>cmpResults.map((r,index)=>({r,index,d:cmpDelta(r,key)})).filter(x=>up?x.d>0:x.d<0).sort((x,y)=>up?y.d-x.d:x.d-y.d).slice(0,5);
   $('cmpRanks').innerHTML=[['cost',true,'광고비 증가'],['cost',false,'광고비 감소'],['sales',true,'매출 증가'],['sales',false,'매출 감소']].map(([k,up,title])=>{const rank=ranking(k,up),max=Math.max(...rank.map(x=>Math.abs(x.d)),1);return `<div class="panel cmp-rank"><h3>${title} TOP 5 <small>${unit}</small></h3>${rank.length?rank.map(({r,index,d})=>`<button type="button" class="cmp-rank-item" data-rank="${index}"><span>${esc(r.name)}</span><strong class="${up?'cmp-up':'cmp-down'}">${cmpSigned(d)}</strong><small>${esc(r.parts.slice(0,-1).join(' › '))}</small><i style="width:${Math.abs(d)/max*100}%"></i></button>`).join(''):'<p>해당 증감 항목이 없습니다.</p>'}</div>`;}).join('');
   const pages=Math.max(1,Math.ceil(cmpResults.length/20));cmpPage=Math.min(cmpPage,pages-1);const ratios=percentages.includes(metric),label=cmpMetricLabels.find(([k])=>k===metric)[1],canDrill=['campaign','adset'].includes($('cmpLevel').value);
@@ -102,38 +102,56 @@ function cmpCompareRows(x,y,key,dir,metric){
   if(b===null||!Number.isFinite(b)&&typeof b!=='string')return -1;
   return (typeof a==='string'?a.localeCompare(b,'ko',{numeric:true}):a-b)*dir||x.id.localeCompare(y.id);
 }
-function cmpSummary(total,items,ar,br,unit,warnings){
-  if(!ar.length||!br.length)return '<p>양 기간 모두 데이터가 있어야 변동을 분석할 수 있습니다. 기간 또는 원본 데이터의 누락 여부를 확인하세요.</p>';
-  const lines=[],change=k=>cmpChange(total,k),delta=k=>cmpSigned(cmpDelta(total,k),percentages.includes(k));
-  lines.push(`<strong>전체 흐름</strong> 광고비는 ${delta('cost')}${unit} (${change('cost')}), 매출은 ${delta('sales')}${unit} (${change('sales')}) 변동했습니다. ROAS는 ${fmt(total.before.roas,true)} → ${fmt(total.after.roas,true)} (${delta('roas')})입니다.`);
-  for(const [key,label] of [['cost','광고비'],['sales','매출']]){
-    const details=[];
-    for(const up of [true,false]){
-      const group=items.filter(r=>up?cmpDelta(r,key)>0:cmpDelta(r,key)<0).sort((x,y)=>Math.abs(cmpDelta(y,key))-Math.abs(cmpDelta(x,key)));
-      if(!group.length)continue;
-      const gross=group.reduce((s,r)=>s+Math.abs(cmpDelta(r,key)),0),r=group[0];
-      details.push(`${up?'증가':'감소'}폭이 가장 큰 항목은 <b>${esc(r.name)}</b> (${esc(r.parts.slice(0,-1).join(' › '))})으로 ${cmpSigned(cmpDelta(r,key))}${unit}, 전체 ${up?'증가액':'감소액'}의 ${fmt(Math.abs(cmpDelta(r,key))/gross,true)}입니다`);
-    }
-    lines.push(`<strong>${label} 주요 변동</strong> ${details.length?details.join('. ')+'.':'항목별 변동이 없습니다.'}`);
+function cmpPairGroups(ar,br,keys){
+  const map=new Map();
+  for(const [side,rs] of [['a',ar],['b',br]])for(const r of rs){
+    const parts=keys.map(k=>String(r[k]||'미지정')),id=JSON.stringify(parts);
+    if(!map.has(id))map.set(id,{id,parts,name:parts.at(-1),a:[],b:[]});
+    map.get(id)[side].push(r);
   }
-  for(const media of [...new Set([...ar,...br].map(r=>r.media))]){
-    const aa=ar.filter(r=>r.media===media),bb=br.filter(r=>r.media===media),t={before:sum(aa),after:sum(bb)},name=media==='meta'?'Meta':'Amazon';
-    if(!aa.length||!bb.length){lines.push(`<strong>${name}</strong> 한 기간에만 데이터가 있어 효율 변화를 판단하기 어렵습니다.`);continue;}
-    let text=`클릭 ${cmpChange(t,'click')}, CPC ${cmpChange(t,'cpc')}입니다. `;
-    if(t.before.click>0&&t.after.click>0){
-      const volume=(t.after.click-t.before.click)*(t.before.cpc+t.after.cpc)/2,price=(t.after.cpc-t.before.cpc)*(t.before.click+t.after.click)/2;
-      text+=`광고비 변동을 클릭 수와 평균 CPC로 나누면 클릭 수 변화분 ${cmpSigned(volume)}${unit}, CPC 변화분 ${cmpSigned(price)}${unit}으로 설명됩니다. `;
+  return [...map.values()].map(g=>({...g,before:sum(g.a),after:sum(g.b),aCount:g.a.length,bCount:g.b.length}));
+}
+function cmpHierarchySummary(ar,br,unit,kwA,kwB,warnings){
+  if(!ar.length||!br.length)return '<p>양 기간 모두 데이터가 있어야 계층별 변동을 분석할 수 있습니다. 기간 또는 원본 누락 여부를 확인하세요.</p>';
+  const campaigns=cmpPairGroups(ar,br,['media','campaign']);
+  const amount=(r,k)=>cmpSigned(cmpDelta(r,k))+unit;
+  const named=r=>`<b>${esc(r.name)}</b>`;
+  const mismatch=r=>cmpDelta(r,'cost')>0&&cmpDelta(r,'sales')<0;
+  const rank=(rs,up)=>rs.filter(r=>up?cmpDelta(r,'sales')>0:cmpDelta(r,'sales')<0).sort((x,y)=>up?cmpDelta(y,'sales')-cmpDelta(x,'sales'):cmpDelta(x,'sales')-cmpDelta(y,'sales'));
+  const status=r=>!r.aCount||!r.bCount?' (한 기간에만 데이터가 있어 신규·중단 또는 누락 확인 필요)':'';
+  function leaves(g,up,media){
+    let leafUnit=unit,aa=g.a,bb=g.b,key=media==='meta'?'ad':'keyword',note='';
+    if(media==='amazon'&&unit==='원'){
+      const match=r=>['media','campaign','adset'].every((k,i)=>String(r[k]||'미지정')===g.parts[i]);
+      aa=kwA.filter(match);bb=kwB.filter(match);leafUnit='엔';
+      note='키워드 원본(JPY) 별도 분석: ';
+      if(!aa.length||!bb.length)return '<p class="cmp-child">↳ 이 그룹과 일치하는 키워드 데이터가 양 기간에 없어 하위 원인을 확인할 수 없습니다.</p>';
     }
-    if(media==='meta')text+=`Shop now 클릭 ${cmpChange(t,'shop now click')}에 따라 추정 매출이 ${cmpChange(t,'sales')} 변했습니다. 구매·매출은 Shop now 클릭 × 5% × 고정 단가·환율로 계산되므로 실제 구매 전환율 변화로 해석하지 않습니다.`;
-    else {
-      text+=`구매 ${cmpChange(t,'purchase')}, CVR ${cmpSigned(cmpDelta(t,'cvr'),true)}이며, 구매 1건당 매출은 ${fmt(ratio(t.before.sales,t.before.purchase))}${unit} → ${fmt(ratio(t.after.sales,t.after.purchase))}${unit}입니다. 매출 변화는 유입량(클릭), 구매 전환(CVR), 구매당 매출을 함께 확인하세요.`;
-    }
-    lines.push(`<strong>${name} 지표 분석</strong> ${text}`);
+    const rs=cmpPairGroups(aa,bb,['media','campaign','adset',key]);
+    const relevant=rank(rs,up).slice(0,3),risks=rs.filter(mismatch).sort((x,y)=>cmpDelta(y,'cost')-cmpDelta(x,'cost')).slice(0,2);
+    const selected=[...new Map([...relevant,...risks].map(r=>[r.id,r])).values()];
+    if(!selected.length)return '<p class="cmp-child">↳ 하위 항목의 매출 변동이 없습니다.</p>';
+    return `<p class="cmp-child">↳ ${note}${selected.map(r=>`${key==='ad'?'소재':'키워드'} ${named(r)}의 광고비 ${cmpSigned(cmpDelta(r,'cost'))}${leafUnit}, 매출 ${cmpSigned(cmpDelta(r,'sales'))}${leafUnit}${mismatch(r)?' 변동하여, 광고비가 늘었지만 매출은 감소했습니다':cmpDelta(r,'sales')>0?' 변동하여 매출 증가에 기여했습니다':' 변동하여 매출 감소에 기여했습니다'}${status(r)}`).join('. ')}.${note?' 키워드 금액은 그룹 성과(KRW)와 원본·통화가 달라 직접 합산하거나 기여율로 환산하지 않습니다.':''}</p>`;
   }
-  const oneSided=items.filter(r=>!r.aCount||!r.bCount).length;
-  if(oneSided)lines.push(`<strong>확인할 항목</strong> ${nf.format(oneSided)}개 항목은 한 기간에만 데이터가 있습니다. 신규 집행·중단 여부와 원본 누락 여부를 확인하세요.`);
-  if(warnings.length)lines.push(`<strong>비교 조건</strong> ${esc(warnings.join(' '))}`);
-  return lines.map(s=>'<p>'+s+'</p>').join('');
+  function campaignText(c,up){
+    const groups=cmpPairGroups(c.a,c.b,['media','campaign','adset']),same=rank(groups,up),gross=same.reduce((s,r)=>s+Math.abs(cmpDelta(r,'sales')),0);
+    const opposite=rank(groups,!up).reduce((s,r)=>s+Math.abs(cmpDelta(r,'sales')),0);
+    const chosen=[...new Map([...same.slice(0,3),...groups.filter(mismatch).sort((x,y)=>cmpDelta(y,'cost')-cmpDelta(x,'cost')).slice(0,2)].map(g=>[g.id,g])).values()];
+    let html=`<article class="cmp-story"><h3>${named(c)} <span class="${up?'cmp-up':'cmp-down'}">매출 ${amount(c,'sales')}</span></h3><p>${esc(c.parts[0]==='meta'?'Meta':'Amazon')} 캠페인의 광고비는 ${amount(c,'cost')} 변동했습니다${mismatch(c)?'. 광고비가 늘었는데 매출이 감소한 캠페인입니다':''}.${status(c)} 전체 ${groups.length}개 그룹 중 ${same.length}개에서 매출이 ${up?'증가':'감소'}했습니다${same.length>groups.length/2?' — 과반수 그룹에서 같은 방향의 변화가 나타났습니다':''}. ${opposite?`반대 방향의 그룹 변동 ${fmt(opposite)}${unit}이 일부 상쇄했습니다.`:''}</p>`;
+    for(const g of chosen){
+      const d=cmpDelta(g,'sales'),aligned=up?d>0:d<0;
+      html+=`<div class="cmp-story-group"><p><strong>그룹 ${named(g)}</strong> 매출 ${amount(g,'sales')}, 광고비 ${amount(g,'cost')}.${aligned&&gross?` 이 캠페인 내 그룹들의 전체 ${up?'증가액':'감소액'} 중 ${fmt(Math.abs(d)/gross,true)}를 차지합니다.`:''}${mismatch(g)?' 특히 광고비 증가에도 매출이 감소하여 하위 항목 확인이 필요한 그룹입니다.':''}${status(g)}</p>${leaves(g,d>0,c.parts[0])}</div>`;
+    }
+    if(c.parts[0]==='meta')html+='<p class="cmp-summary-note">Meta 매출은 Shop now 클릭 기반 추정값이므로 위 소재 분석도 추정 매출의 변동입니다.</p>';
+    return html+'</article>';
+  }
+  let html='<p>캠페인 → 그룹 → 키워드·소재 순으로 매출 변동을 추적합니다. 각 방향의 상위 3개 캠페인과 주요 그룹·하위 항목을 표시합니다.</p>';
+  for(const up of [false,true]){
+    const ranked=rank(campaigns,up);html+=`<h3 class="cmp-story-title">매출 ${up?'증가':'감소'} 주요 경로</h3>`;
+    html+=ranked.length?ranked.slice(0,3).map((c,i)=>i===0?campaignText(c,up):`<details class="cmp-story-more"><summary>${esc(c.name)} · 매출 ${amount(c,'sales')} — 분석 펼치기</summary>${campaignText(c,up)}</details>`).join(''):'<p>해당 방향으로 변동한 캠페인이 없습니다.</p>';
+  }
+  if(warnings.length)html+=`<p><strong>비교 조건</strong> ${esc(warnings.join(' '))}</p>`;
+  return html;
 }
 
 function initComparison(){
