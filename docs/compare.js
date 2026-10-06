@@ -1,3 +1,4 @@
+let cmpHistory=[],cmpPerformanceSource='all';
 let cmpPath=[],cmpPage=0,cmpResults=[],cmpSort='abs',cmpValid=false;
 const cmpMetricLabels=[['cost','광고비'],['sales','매출'],['imp','노출'],['click','클릭'],['purchase','구매'],['roas','ROAS'],['ctr','CTR'],['cpc','CPC'],['cpm','CPM'],['view','조회'],['vtr','VTR'],['3s-view','3초 조회'],['like','좋아요'],['coment','댓글'],['share','공유'],['save','저장'],['er','ER'],['shop now click','Shop now 클릭'],['dpv','DPV'],['cart','장바구니'],['cvr','CVR'],['acos','ACOS']];
 const cmpIso=d=>d.toISOString().slice(0,10),cmpShift=(date,n)=>{const d=new Date(date+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return cmpIso(d)},cmpDays=(a,b)=>Math.round((new Date(b+'T00:00:00Z')-new Date(a+'T00:00:00Z'))/86400000)+1;
@@ -23,8 +24,19 @@ function cmpPresets(){
   if(a){[$('cmpAStart').value,$('cmpAEnd').value]=a;[$('cmpBStart').value,$('cmpBEnd').value]=b;}
   cmpPage=0;renderComparison();
 }
-function cmpResetPath(){cmpPath=[];cmpPage=0;}
-function cmpDrill(index){const r=cmpResults[index];if(!r)return;const keys=cmpKeys();if(keys.at(-1)==='ad'||keys.at(-1)==='keyword')return;cmpPath=keys.map((k,i)=>[k,r.parts[i]]);$('cmpLevel').value=keys.at(-1)==='campaign'?'adset':$('cmpSource').value==='keyword'?'keyword':'ad';$('cmpSearch').value='';cmpPage=0;renderComparison();}
+function cmpResetPath(){cmpPath=[];cmpPage=0;cmpHistory=[];}
+function cmpRemember(){cmpHistory.push({path:cmpPath.map(p=>[...p]),page:cmpPage,source:$('cmpSource').value,level:$('cmpLevel').value,search:$('cmpSearch').value,metric:$('cmpMetric').value,order:$('cmpOrder').value});}
+function cmpBack(){const previous=cmpHistory.pop();if(!previous)return;cmpPath=previous.path;cmpPage=previous.page;$('cmpSource').value=previous.source;const leaf=$('cmpLevel').querySelector('option[data-leaf]');leaf.value=previous.source==='keyword'?'keyword':'ad';leaf.textContent=previous.source==='keyword'?'키워드별':'소재별';for(const [id,key] of [['cmpLevel','level'],['cmpSearch','search'],['cmpMetric','metric'],['cmpOrder','order']])$(id).value=previous[key];renderComparison();}
+function cmpChooseLevel(level){
+  if(level===$('cmpLevel').value)return;
+  cmpRemember();const oldSource=$('cmpSource').value;
+  if(level==='keyword'&&oldSource!=='keyword'){cmpPerformanceSource=oldSource;$('cmpSource').value='keyword';cmpPath=[];}
+  if(level==='ad'&&oldSource==='keyword'){$('cmpSource').value=cmpPerformanceSource;cmpPath=[];}
+  const keyword=$('cmpSource').value==='keyword',leaf=$('cmpLevel').querySelector('option[data-leaf]');leaf.value=keyword?'keyword':'ad';leaf.textContent=keyword?'키워드별':'소재별';
+  if(level==='campaign')cmpPath=[];else if(level==='adset')cmpPath=cmpPath.filter(([key])=>['media','campaign'].includes(key));
+  $('cmpLevel').value=level;$('cmpSearch').value='';cmpPage=0;renderComparison();
+}
+function cmpDrill(index){const r=cmpResults[index];if(!r)return;const keys=cmpKeys();if(keys.at(-1)==='ad'||keys.at(-1)==='keyword')return;cmpRemember();cmpPath=keys.map((k,i)=>[k,r.parts[i]]);$('cmpLevel').value=keys.at(-1)==='campaign'?'adset':$('cmpSource').value==='keyword'?'keyword':'ad';$('cmpSearch').value='';cmpPage=0;renderComparison();}
 function renderComparison(){
   if(view!=='compare')return;const keyword=$('cmpSource').value==='keyword',currency=keyword?'JPY':'KRW',unit=keyword?'엔':'원';
   const leaf=$('cmpLevel').querySelector('option[data-leaf]');leaf.value=keyword?'keyword':'ad';leaf.textContent=keyword?'키워드별':'소재별';
@@ -42,6 +54,12 @@ function renderComparison(){
   $('cmpWarning').textContent=warnings.join(' ');$('cmpWarning').hidden=!warnings.length;
   $('cmpBasis').textContent=`증감 = B − A · 증감률 = (B − A) ÷ A · 비율 지표 증감은 %p · 금액 ${currency}. `+(keyword?'Amazon 키워드 원본 기준이며 일반 성과 원본과 합산하지 않습니다.':'Meta 구매·매출은 기존 추정 기준, Amazon은 광고 보고값입니다.');
   $('cmpCrumbs').innerHTML='<button type="button" class="button" id="cmpRoot">전체로 돌아가기</button>'+cmpPath.filter(([k])=>k!=='media').map(([k,v])=>`<span>${esc(v)}</span>`).join('<span>›</span>');$('cmpRoot').onclick=()=>{cmpResetPath();$('cmpLevel').value='campaign';renderComparison();};
+  $('cmpDetailBack').disabled=!cmpHistory.length;$('cmpDetailBack').onclick=cmpBack;
+  $('cmpDetailRoot').disabled=!cmpPath.length;$('cmpDetailRoot').onclick=()=>{cmpResetPath();$('cmpLevel').value='campaign';$('cmpSearch').value='';renderComparison();};
+  $('cmpDetailPath').textContent=cmpPath.length?cmpPath.map(([key,value])=>key==='media'?(value==='meta'?'Meta':'Amazon'):value).join(' › '):'전체 항목';
+  $('cmpDetailSource').textContent=keyword?'Amazon 키워드 · JPY':$('cmpSource').selectedOptions[0].textContent;
+  $('cmpLevelButtons').querySelectorAll('[data-level]').forEach(button=>{button.setAttribute('aria-pressed',String(button.dataset.level===$('cmpLevel').value));button.onclick=()=>cmpChooseLevel(button.dataset.level);});
+
   $('cmpCards').innerHTML=['cost','sales','purchase','roas'].map(k=>{const d=cmpDelta(total,k);return `<div class="kpi"><div class="label">${cmpMetricLabels.find(([key])=>key===k)[1]} 증감${['cost','sales'].includes(k)?' ('+unit+')':''}</div><strong class="${d>0?'cmp-up':d<0?'cmp-down':''}">${cmpSigned(d,percentages.includes(k))}</strong><small>A ${fmt(total.before[k],percentages.includes(k))} → B ${fmt(total.after[k],percentages.includes(k))}</small></div>`;}).join('');
   const q=$('cmpSearch').value.trim().toLowerCase(),metric=$('cmpMetric').value;
   cmpResults=compareAggregate(data,a,b,cmpKeys()).filter(r=>r.parts.join(' ').toLowerCase().includes(q));
