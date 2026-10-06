@@ -25,6 +25,53 @@ function tableRowHtml(r,columns,child=false){
   const name=child?`<span class="campaign-branch" aria-hidden="true">↳</span><span class="campaign-name"><small>캠페인</small>${esc(r.name)}</span>`:esc(r.name);
   return `<tr class="${child?'keyword-campaign-row':r.campaigns&&keywordCampaignsExpanded?'keyword-total-row':''}">`+columns.map(([k])=>k==='name'?`<td class="${child?'campaign-label':''}">${name}${r.campaigns&&keywordCampaignsExpanded?`<small class="campaign-count">${r.campaigns.length}개 캠페인 합계</small>`:''}</td>`:`<td>${fmt(r[k],percentages.includes(k))}</td>`).join('')+'</tr>';
 }
+const BUDGET_KEY='manyo-monthly-budgets-v1';
+const budgetToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+let monthlyBudgets={},budgetReadError=false;
+function validBudget(v){return typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;}
+try{const saved=JSON.parse(localStorage.getItem(BUDGET_KEY)||'{}');for(const [month,values] of Object.entries(saved||{})){if(/^\d{4}-(0[1-9]|1[0-2])$/.test(month)&&values&&typeof values==='object'){monthlyBudgets[month]={};for(const media of ['meta','amazon'])if(validBudget(values[media]))monthlyBudgets[month][media]=values[media];}}}catch{budgetReadError=true;}
+function budgetStats(data,month,media,targets,today){
+  const scope=media==='overview'?['meta','amazon']:[media];
+  const relevant=data.filter(r=>r.date.slice(0,7)===month&&r.date<=today&&scope.includes(r.media));
+  const spent=relevant.reduce((total,r)=>total+r.cost,0);
+  const complete=scope.every(key=>validBudget(targets[key]));
+  const target=complete?scope.reduce((total,key)=>total+targets[key],0):null;
+  return {spent,target,rate:target>0?spent/target:null,count:relevant.length,latest:relevant.reduce((d,r)=>r.date>d?r.date:d,''),scope};
+}
+function renderBudget(){
+  const panel=$('budgetPanel');panel.hidden=!['overview','meta','amazon'].includes(view);if(panel.hidden)return;
+  const today=budgetToday(),month=$('budgetMonth').value||today.slice(0,7);$('budgetMonth').value=month;
+  const s=budgetStats(rows,month,view,monthlyBudgets[month]||{},today),label=view==='overview'?'Meta + Amazon':view==='meta'?'Meta':'Amazon PPC';
+  $('budgetScope').textContent=label+' · KRW';
+  $('budgetSpent').textContent=fmt(s.spent)+'원';$('budgetTarget').textContent=s.target===null?'목표 미설정':fmt(s.target)+'원';
+  $('budgetRate').textContent=s.rate===null?'—':fmt(s.rate,true);
+  $('budgetFill').style.width=(s.rate===null?0:Math.min(100,Math.max(0,s.rate*100)))+'%';
+  $('budgetPanel').classList.toggle('over-budget',s.target!==null&&s.spent>s.target);
+  $('budgetProgress').setAttribute('aria-label',label+' 월 광고비 소진율');
+  if(s.rate===null){$('budgetProgress').removeAttribute('aria-valuenow');$('budgetProgress').setAttribute('aria-valuetext',s.target===0?'목표 0원 · 소진율 계산 불가':'목표 미설정');}
+  else{$('budgetProgress').setAttribute('aria-valuenow',String(Math.min(100,s.rate*100)));$('budgetProgress').setAttribute('aria-valuetext',fmt(s.rate,true));}
+  $('budgetRemaining').textContent=s.target===null?(view==='overview'?'Meta와 Amazon 목표를 모두 입력하면 합산 소진율을 표시합니다.':'데이터 관리에서 이 월의 목표 광고비를 입력하세요.'):(s.spent>s.target?'목표 초과 '+fmt(s.spent-s.target)+'원':'남은 예산 '+fmt(s.target-s.spent)+'원');
+  const dates=s.scope.map(media=>{const matched=rows.filter(r=>r.media===media&&r.date.slice(0,7)===month&&r.date<=today);return (media==='meta'?'Meta':'Amazon')+' '+(matched.length?latestDate(matched)+'까지':'데이터 없음');});
+  $('budgetBasis').textContent=month+' 월 전체 · '+dates.join(' / ')+' · 상단 기간·상품 필터와 별도 집계';
+}
+function loadBudgetForm(){
+  const month=$('budgetEditMonth').value,values=monthlyBudgets[month]||{};
+  $('budgetMeta').value=values.meta??'';$('budgetAmazon').value=values.amazon??'';
+  $('budgetSaveStatus').textContent=budgetReadError?'저장된 목표를 읽지 못했습니다. 저장 공간 설정을 확인해 주세요.':'';
+}
+function saveBudgetForm(e){
+  e.preventDefault();const month=$('budgetEditMonth').value;
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)){$('budgetSaveStatus').textContent='목표를 적용할 월을 선택하세요.';return;}
+  const values={};for(const [media,id] of [['meta','budgetMeta'],['amazon','budgetAmazon']]){const input=$(id).value.trim();if(input==='')continue;const value=Number(input);if(!validBudget(value)){$('budgetSaveStatus').textContent='목표 광고비는 0 이상의 정수(원)로 입력하세요.';return;}values[media]=value;}
+  const next={...monthlyBudgets,[month]:values};
+  try{localStorage.setItem(BUDGET_KEY,JSON.stringify(next));monthlyBudgets=next;budgetReadError=false;$('budgetMonth').value=month;renderBudget();$('budgetSaveStatus').textContent=month+' 목표 광고비를 이 브라우저에 저장했습니다.';}
+  catch{$('budgetSaveStatus').textContent='저장하지 못했습니다. 브라우저 저장 공간 설정을 확인해 주세요.';}
+}
+$('budgetMonth').value=budgetToday().slice(0,7);$('budgetEditMonth').value=budgetToday().slice(0,7);loadBudgetForm();
+$('budgetMonth').addEventListener('change',renderBudget);$('budgetEditMonth').addEventListener('change',loadBudgetForm);$('budgetForm').addEventListener('submit',saveBudgetForm);
+$('budgetSettings').onclick=()=>{$('nav').querySelector('[data-view=source]').click();$('budgetEditMonth').value=$('budgetMonth').value;loadBudgetForm();$('budgetMeta').focus();};
+
+
 const activeRows=()=>view==='keyword'?keywordRows:rows;
 function fillOptions(id,key,label,data=activeRows()){$(id).innerHTML='<option value="">'+label+'</option>'+[...new Set(data.map(r=>r[key]).filter(Boolean))].sort().map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('')}
 function refreshFilters(){$('creativeGroupFilter').hidden=view!=='creative';$('creativeAdFilter').hidden=view!=='creative';$('creativeGroup').value='';$('creativeAd').value='';const kw=view==='keyword';$('campaignFilter').hidden=!(kw||view==='campaign'||view==='creative');fillOptions('campaign','campaign','전체 캠페인');$('keywordFilter').hidden=!kw;fillOptions('keyword','keyword','전체 키워드',keywordRows);$('typeFilter').hidden=kw;$('group').hidden=false;$('search').placeholder=kw?'키워드 검색':'이름 검색';for(const option of $('group').options){option.disabled=kw&&option.value!=='keyword';option.hidden=option.disabled;}$('mediaFilter').hidden=kw;$('productLabel').textContent=kw?'ASIN':'상품';fillOptions('media','media','전체 매체');fillOptions('product','product',kw?'전체 ASIN':'전체 상품');fillOptions('type','ad type','전체 유형')}
@@ -42,7 +89,7 @@ function applyDatePreset(preset){datePreset=preset;const dates=preset==='all'?ac
 function initialize(){applyDatePreset('month');refreshFilters();page=0;render()}
 
 function selected(){return activeRows().filter(r=>(!$('start').value||r.date>=$('start').value)&&(!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)&&(!['keyword','campaign','creative'].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)&&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)&&(!(view==='amazon'||view==='meta')||r.media===view)&&(view!=='creative'||(r.ad&&(!$('creativeGroup').value||r.adset===$('creativeGroup').value)&&(!$('creativeAd').value||r.ad===$('creativeAd').value))))}
-function render(){syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
+function render(){renderBudget();syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
 $('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);bars('channels',group(rs,'media'),true);bars('products',group(rs,'product').sort((a,b)=>b.cost-a.cost).slice(0,5));let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
 function bars(id,data,channel=false){let total=data.reduce((s,r)=>s+r.cost,0),symbol=view==='keyword'?'¥':'₩';$(id).innerHTML=data.length?data.map((r,i)=>`<div class="barrow"><div class="barlabel"><span>${esc(r.name)}</span><strong>${symbol}${fmt(r.cost)}</strong></div><div class="track"><div class="fill" style="width:${total?r.cost/total*100:0}%;background:${i===1?'#8dabc9':'#3568a8'}"></div></div>${channel?`<div class="mini">클릭 ${fmt(r.click)} · CPC ${symbol}${fmt(r.cpc)} · ROAS ${fmt(r.roas,true)}</div>`:''}</div>`).join(''):'<div class="empty">해당 데이터가 없습니다.</div>'}
 function niceAxisMax(peak,percent=false){
@@ -129,7 +176,7 @@ function datasetCache(mode,id,value){
 function saveDatasetCache(id,matrix){return datasetCache('readwrite',id,{matrix,savedAt:Date.now()})}
 const sourceStates = Object.fromEntries(dataSources.map(source=>[source.id,{message:'저장본 확인 중',error:'',history:''}]));
 function updateDataStatus(){
-  $('status').textContent='v2026.10.02-4 · Google Sheets · '+dataSources.map(source=>{
+  $('status').textContent='v2026.10.06 · Google Sheets · '+dataSources.map(source=>{
     const data=source.read(),state=sourceStates[source.id];
     return `${source.label} ${nf.format(data.length)}행 (${latestDate(data)||'날짜 없음'}까지) · ${state.message}`;
   }).join(' / ');
