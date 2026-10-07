@@ -73,7 +73,8 @@ function renderComparison(){
   const ranking=(key,up)=>cmpResults.map((r,index)=>({r,index,d:cmpDelta(r,key)})).filter(x=>up?x.d>0:x.d<0).sort((x,y)=>up?y.d-x.d:x.d-y.d).slice(0,5);
   $('cmpRanks').innerHTML=[['cost',true,'광고비 증가'],['cost',false,'광고비 감소'],['sales',true,'매출 증가'],['sales',false,'매출 감소']].map(([k,up,title])=>{const rank=ranking(k,up),max=Math.max(...rank.map(x=>Math.abs(x.d)),1);return `<div class="panel cmp-rank"><h3>${title} TOP 5 <small>${unit}</small></h3>${rank.length?rank.map(({r,index,d})=>`<button type="button" class="cmp-rank-item" data-rank="${index}"><span>${esc(r.name)}</span><strong class="${up?'cmp-up':'cmp-down'}">${cmpSigned(d)}</strong><small>${esc(r.parts.slice(0,-1).join(' › '))}</small><i style="width:${Math.abs(d)/max*100}%"></i></button>`).join(''):'<p>해당 증감 항목이 없습니다.</p>'}</div>`;}).join('');
   const pages=Math.max(1,Math.ceil(cmpResults.length/20));cmpPage=Math.min(cmpPage,pages-1);const ratios=percentages.includes(metric),label=cmpMetricLabels.find(([k])=>k===metric)[1],canDrill=['campaign','adset'].includes($('cmpLevel').value);
-  $('cmpTable').innerHTML=cmpRenderDetail(columns,total,a,b,canDrill);
+  const sortHeader=(c,span='')=>`<th ${span} aria-sort="${cmpTableSort?.key===c.key?(cmpTableSort.dir===1?'ascending':'descending'):'none'}"><button type="button" class="cmp-sort" data-sort="${c.key}" aria-label="${c.label} 정렬">${c.part?({before:'기준 A',after:'비교 B',delta:'증감',rate:'증감률'})[c.part]:c.label} <span>${cmpTableSort?.key===c.key?(cmpTableSort.dir===1?'↑':'↓'):'↕'}</span></button></th>`;
+  $('cmpTable').innerHTML='<thead><tr>'+sortHeader(columns[0],'rowspan="2"')+cmpTableMetrics(metric).map(k=>`<th colspan="4" scope="colgroup">${cmpMetricLabels.find(([key])=>key===k)[1]}${['cost','sales','cpc','cpm'].includes(k)?' ('+unit+')':''}${['cvr','roas'].includes(k)&&!keyword&&$('cmpSource').value!=='amazon'?'*':''}</th>`).join('')+'</tr><tr>'+columns.slice(1).map(c=>sortHeader(c)).join('')+'</tr></thead><tbody>'+(cmpResults.length?cmpResults.slice(cmpPage*20,cmpPage*20+20).map((r,i)=>`<tr><td>${canDrill?`<button type="button" class="cmp-drill" data-drill="${cmpPage*20+i}">${esc(r.name)} →</button>`:`<strong>${esc(r.name)}</strong>`}<small>${esc(r.parts.slice(0,-1).join(' › '))}</small></td>${columns.slice(1).map(c=>`<td class="${['delta','rate'].includes(c.part)?(cmpSortValue(r,c.key,metric)>0?'cmp-up':cmpSortValue(r,c.key,metric)<0?'cmp-down':''):''}">${cmpTableCell(r,c)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${columns.length}" class="empty">해당 조건의 데이터가 없습니다.</td></tr>`)+'</tbody>';
   $('cmpTable').querySelectorAll('[data-sort]').forEach(el=>el.onclick=()=>{const key=el.dataset.sort;cmpTableSort={key,dir:cmpTableSort?.key===key?-cmpTableSort.dir:key==='name'?1:-1};cmpPage=0;renderComparison();});
   $('cmpPager').textContent=`${nf.format(cmpResults.length)}개 항목 · ${cmpPage+1} / ${pages}`;$('cmpPrev').disabled=cmpPage===0;$('cmpNext').disabled=cmpPage===pages-1;
   $('cmpTable').querySelectorAll('[data-drill]').forEach(el=>el.onclick=()=>cmpDrill(Number(el.dataset.drill)));
@@ -87,36 +88,8 @@ function cmpExport(){
   const url=URL.createObjectURL(new Blob(['\uFEFF'+[header,...data].map(r=>r.map(encode).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8;'}));const link=document.createElement('a');link.href=url;link.download='JP_period_comparison.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function cmpTableMetrics(metric){return [...new Set(['cost','sales','imp','click','ctr','cpc','cvr','roas',metric])];}
-
-const cmpReportMetrics=['cost','imp','click','ctr','cpm','cpc','view','dpv','cart','purchase','sales','cvr','roas','acos'];
-const cmpPartLabels={before:'기준 A',after:'비교 B',delta:'증감',rate:'증감률'};
-function cmpDetailLayout(){return $('cmpLayout')?.value||'metric';}
-function cmpDetailParts(){const focus=$('cmpDisplay')?.value||'all';return focus==='all'?['before','after','delta']: [focus];}
 function cmpColumns(metric,unit){
-  const make=(k,part)=>({key:k+':'+part,metric:k,part,label:cmpMetricLabels.find(([m])=>m===k)[1]+' · '+cmpPartLabels[part]});
-  const details=cmpDetailLayout()==='period'
-    ?cmpDetailParts().flatMap(part=>[...new Set([...cmpReportMetrics,metric])].map(k=>make(k,part)))
-    :cmpTableMetrics(metric).flatMap(k=>['before','after','delta','rate'].map(part=>make(k,part)));
-  return [{key:'name',label:'분석 항목 / 경로'},...details];
-}
-function cmpRenderDetail(columns,total,a,b,canDrill){
-  const period=cmpDetailLayout()==='period',metric=$('cmpMetric').value,keyword=$('cmpSource').value==='keyword',unit=keyword?'엔':'원';
-  const monetary=k=>['cost','sales','cpc','cpm'].includes(k);
-  const metricLabel=k=>cmpMetricLabels.find(([key])=>key===k)[1]+(monetary(k)?' ('+unit+')':'')+(['purchase','sales','cvr','roas','acos'].includes(k)&&!keyword&&$('cmpSource').value!=='amazon'?'*':'');
-  const header=(c,text,span='')=>'<th '+span+' aria-sort="'+(cmpTableSort?.key===c.key?(cmpTableSort.dir===1?'ascending':'descending'):'none')+'"><button type="button" class="cmp-sort" data-sort="'+c.key+'" aria-label="'+esc(c.label)+' 정렬">'+esc(text)+' <span>'+(cmpTableSort?.key===c.key?(cmpTableSort.dir===1?'↑':'↓'):'↕')+'</span></button></th>';
-  const partTitle=part=>part==='before'?'기준 A · '+a.join(' ~ '):part==='after'?'비교 B · '+b.join(' ~ '):part==='delta'?'증감 · B − A':'증감률 · (B − A) ÷ A';
-  const groups=period?cmpDetailParts().map(part=>({label:partTitle(part),count:columns.filter(c=>c.part===part).length,part}))
-    :cmpTableMetrics(metric).map(k=>({label:metricLabel(k),count:4,part:''}));
-  const cells=r=>columns.slice(1).map(c=>{
-    const v=cmpSortValue(r,c.key,metric),change=['delta','rate'].includes(c.part);
-    return '<td class="cmp-part-'+c.part+' '+(change?(v>0?'cmp-up':v<0?'cmp-down':''):'')+'">'+cmpTableCell(r,c)+'</td>';
-  }).join('');
-  $('cmpTable').classList.toggle('cmp-period-layout',period);
-  $('cmpDisplayLabel').hidden=!period;
-  const heading='<thead><tr>'+header(columns[0],columns[0].label,'rowspan="2"')+groups.map(g=>'<th class="cmp-band-'+g.part+'" colspan="'+g.count+'" scope="colgroup">'+esc(g.label)+'</th>').join('')+'</tr><tr>'+columns.slice(1).map(c=>header(c,period?metricLabel(c.metric):cmpPartLabels[c.part])).join('')+'</tr></thead>';
-  const body=cmpResults.length?cmpResults.slice(cmpPage*20,cmpPage*20+20).map((r,i)=>'<tr><td>'+(canDrill?'<button type="button" class="cmp-drill" data-drill="'+(cmpPage*20+i)+'">'+esc(r.name)+' →</button>':'<strong>'+esc(r.name)+'</strong>')+'<small>'+esc(r.parts.slice(0,-1).join(' › '))+'</small></td>'+cells(r)+'</tr>').join(''):'<tr><td colspan="'+columns.length+'" class="empty">해당 조건의 데이터가 없습니다.</td></tr>';
-  const totals=cmpResults.length?'<tfoot><tr><td><strong>조회 결과 합계</strong><small>전체 '+nf.format(cmpResults.length)+'개 항목 · 비율 재계산</small></td>'+cells(total)+'</tr></tfoot>':'';
-  return heading+'<tbody>'+body+'</tbody>'+totals;
+  return [{key:'name',label:'분석 항목 / 경로'},...cmpTableMetrics(metric).flatMap(k=>['before','after','delta','rate'].map(part=>({key:k+':'+part,metric:k,part,label:cmpMetricLabels.find(([m])=>m===k)[1]+' · '+({before:'기준 A',after:'비교 B',delta:'증감',rate:'증감률'})[part]})))];
 }
 function cmpSortValue(r,key,metric){
   if(key==='name')return r.name+' › '+r.parts.slice(0,-1).join(' › ');
@@ -197,7 +170,6 @@ function initComparison(){
   $('cmpSource').onchange=()=>{cmpResetPath();$('cmpLevel').value='campaign';$('cmpSearch').value='';renderComparison();};
   $('cmpLevel').onchange=()=>{cmpResetPath();renderComparison();};
   for(const id of ['cmpMetric','cmpOrder'])$(id).onchange=()=>{cmpTableSort=null;if($('cmpOrder').value==='table')$('cmpOrder').value='abs';cmpPage=0;renderComparison();};$('cmpSearch').oninput=()=>{cmpPage=0;renderComparison();};
-  for(const id of ['cmpLayout','cmpDisplay'])$(id).onchange=()=>{cmpTableSort=null;cmpPage=0;renderComparison();};
   $('cmpPrev').onclick=()=>{cmpPage--;renderComparison();};$('cmpNext').onclick=()=>{cmpPage++;renderComparison();};$('cmpExport').onclick=cmpExport;
   if(view==='compare')renderComparison();
 }

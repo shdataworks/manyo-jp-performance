@@ -90,7 +90,32 @@ function initialize(){applyDatePreset('month');refreshFilters();page=0;render()}
 
 function selected(ignoreDates=false){return activeRows().filter(r=>(ignoreDates||!$('start').value||r.date>=$('start').value)&&(ignoreDates||!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)&&(!['keyword','campaign','creative'].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)&&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)&&(!(view==='amazon'||view==='meta')||r.media===view)&&(view!=='creative'||(r.ad&&(!$('creativeGroup').value||r.adset===$('creativeGroup').value)&&(!$('creativeAd').value||r.ad===$('creativeAd').value))))}
 function render(){if(view==='compare'){if(typeof renderComparison==='function')renderComparison();return;}renderBudget();syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
-$('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);bars('channels',group(rs,'media'),true);bars('products',group(rs,'product').sort((a,b)=>b.cost-a.cost).slice(0,5));let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
+$('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);drawProductPanels(rs);let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
+
+function productPanelData(rs){
+  const keywordMode=view==='keyword';
+  const campaignAmazon=view==='campaign'&&Boolean($('campaign').value)&&rs.length>0&&rs.every(r=>r.media==='amazon');
+  if(keywordMode||campaignAmazon){
+    const scope=new Set(rs.map(r=>JSON.stringify([r.campaign,r.adset])));
+    const data=keywordMode?rs:keywordRows.filter(r=>(!$('start').value||r.date>=$('start').value)&&(!$('end').value||r.date<=$('end').value)&&scope.has(JSON.stringify([r.campaign,r.adset])));
+    const grouped=group(data.map(r=>({...r,panelProduct:String(r.advertised_product||r.product_name||r.asin||'ASIN 미지정').trim()})),'panelProduct');
+    return {items:grouped,symbol:'¥',basis:'Amazon 키워드 원본 · JPY · ASIN별 집계. 상품명 매핑 전에는 ASIN을 표시합니다.'+(campaignAmazon?' 상단 성과는 일반 원본(KRW)이며 집계 범위가 다를 수 있습니다.':''),empty:campaignAmazon?'선택 기간·캠페인에 해당하는 키워드 원본이 없습니다.':'선택 조건의 데이터가 없습니다.'};
+  }
+  return {items:group(rs,'product'),symbol:'₩',basis:'일반 성과 원본 · KRW · 원본 상품 분류 기준. Amazon 캠페인을 선택하면 키워드 원본의 ASIN별 성과를 표시합니다.',empty:'선택 조건의 데이터가 없습니다.'};
+}
+function productBars(items,key,symbol,empty){
+  const total=items.reduce((s,r)=>s+r[key],0);
+  const ordered=[...items].sort((a,b)=>b[key]-a[key]||a.name.localeCompare(b.name));
+  return ordered.length?ordered.map(r=>'<div class="barrow"><div class="barlabel"><span>'+esc(r.name)+'</span><strong>'+symbol+fmt(r[key])+'</strong></div><div class="track"><div class="fill" style="width:'+(total>0?Math.min(100,Math.max(0,r[key]/total*100)):0)+'%"></div></div><div class="mini">비중 '+(total>0?fmt(r[key]/total,true):'—')+'</div></div>').join(''):'<div class="empty">'+esc(empty)+'</div>';
+}
+function drawProductPanels(rs){
+  const data=productPanelData(rs);
+  $('productCostChart').innerHTML=productBars(data.items,'cost',data.symbol,data.empty);
+  $('productSalesChart').innerHTML=productBars(data.items,'sales',data.symbol,data.empty);
+  $('productCostTotal').textContent='합계 '+data.symbol+fmt(data.items.reduce((s,r)=>s+r.cost,0));
+  $('productSalesTotal').textContent='합계 '+data.symbol+fmt(data.items.reduce((s,r)=>s+r.sales,0));
+  $('productBreakdownBasis').textContent=data.basis;
+}
 function bars(id,data,channel=false){let total=data.reduce((s,r)=>s+r.cost,0),symbol=view==='keyword'?'¥':'₩';$(id).innerHTML=data.length?data.map((r,i)=>`<div class="barrow"><div class="barlabel"><span>${esc(r.name)}</span><strong>${symbol}${fmt(r.cost)}</strong></div><div class="track"><div class="fill" style="width:${total?r.cost/total*100:0}%;background:${i===1?'#8dabc9':'#3568a8'}"></div></div>${channel?`<div class="mini">클릭 ${fmt(r.click)} · CPC ${symbol}${fmt(r.cpc)} · ROAS ${fmt(r.roas,true)}</div>`:''}</div>`).join(''):'<div class="empty">해당 데이터가 없습니다.</div>'}
 function niceAxisMax(peak,percent=false){
   if(!Number.isFinite(peak)||peak<=0)return percent?0.05:5;
