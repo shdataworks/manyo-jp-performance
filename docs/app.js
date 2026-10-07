@@ -136,16 +136,19 @@ function drawMediaDonuts(rs){
   $('mediaDonutGrid').innerHTML=[['cost','매체별 광고비'],['click','매체별 클릭'],['sales','매체별 매출']].map(([key,label])=>mediaDonutMarkup(data,key,label)).join('');
 }
 
+// ASIN LIST!B2:D42, read 2026-10-07: Model Name grouped across size variants.
+const ASIN_MODEL_NAMES=Object.freeze({"B08ZN13FNL":"GPG","B01CKL1ZF0":"SDF","B0DMNF6DB8":"PCO + GPG","B0BTSKZ643":"PCO + BFD","B01N5K834V":"PCO","B0FH67BX3V":"Galac E","B0CY25DD2N":"PCW","B0G1SVKR73":"PCM","B0GGH9DCKK":"GS","B0GGGJJQZX":"GSP","B0GTK1CYKX":"GS + GSP","B0GS7S5191":"PCF","B08DTTL17D":"BFD","B0GVN5SHP8":"OTC","B0D6N2QR32":"Travel Kit","B0H1J597NV":"GT","B0CC5HJ5LK":"PCB","B0C5R6DM67":"Panthe C","B0C5R6TH94":"Panthe T","B09RQGHYJ1":"PCF","B08BTPYLG3":"Galac C","B08ZMZTBS4":"Galac T","B0FMDJYHCR":"Galac E","B0B5GMYS28":"GPG","B0CTTN1259":"Foundation SC","B0C5R6S4H4":"Panthe B","B09DPMDJHZ":"BFD C","B0FR7NDC5M":"Panthe SC","B09DP3J3RB":"BFD T","B08DTVXXXQ":"BFD T","B09DNZQ5Q9":"Galac M","B0H6Q5XJ96":"GT + PCO","B0H6PZ2FKY":"GS + GT + PCO","B0H6PWYHJM":"GS + PCO","B0H6PT127P":"PCO + SDF","B0H6Q114RN":"GT + SDF","B0H6Q29SQG":"GS + SDF","B0H6Q4DLCP":"Galac T + SDF","B0H6Q197SZ":"Galac E + GS","B0H6Q6FSTK":"Galac E 60 + GS","B0H6PLMFNJ":"PCO + PCF"});
+function advertisedModelName(r){const asin=String(r.asin||'').trim().toUpperCase();return ASIN_MODEL_NAMES[asin]||String(r.advertised_product||r.product_name||asin||'ASIN 미지정').trim();}
 function productPanelData(rs){
   const keywordMode=view==='keyword';
   const campaignAmazon=view==='campaign'&&Boolean($('campaign').value)&&rs.length>0&&rs.every(r=>r.media==='amazon');
   if(keywordMode||campaignAmazon){
     const scope=new Set(rs.map(r=>JSON.stringify([r.campaign,r.adset])));
     const data=keywordMode?rs:keywordRows.filter(r=>(!$('start').value||r.date>=$('start').value)&&(!$('end').value||r.date<=$('end').value)&&scope.has(JSON.stringify([r.campaign,r.adset])));
-    const grouped=group(data.map(r=>({...r,panelProduct:String(r.advertised_product||r.product_name||r.asin||'ASIN 미지정').trim()})),'panelProduct');
-    return {items:grouped,symbol:'¥',basis:'Amazon 키워드 원본 · JPY · ASIN별 집계. 상품명 매핑 전에는 ASIN을 표시합니다.'+(campaignAmazon?' 상단 성과는 일반 원본(KRW)이며 집계 범위가 다를 수 있습니다.':''),empty:campaignAmazon?'선택 기간·캠페인에 해당하는 키워드 원본이 없습니다.':'선택 조건의 데이터가 없습니다.'};
+    const grouped=group(data.map(r=>({...r,panelProduct:advertisedModelName(r)})),'panelProduct');
+    return {items:grouped,symbol:'¥',basis:'Amazon 키워드 원본 · JPY · ASIN LIST의 Model Name별 합계. 목록에 없는 ASIN은 그대로 표시합니다.'+(campaignAmazon?' 상단 성과는 일반 원본(KRW)이며 집계 범위가 다를 수 있습니다.':''),empty:campaignAmazon?'선택 기간·캠페인에 해당하는 키워드 원본이 없습니다.':'선택 조건의 데이터가 없습니다.'};
   }
-  return {items:group(rs,'product'),symbol:'₩',basis:'일반 성과 원본 · KRW · 원본 상품 분류 기준. Amazon 캠페인을 선택하면 키워드 원본의 ASIN별 성과를 표시합니다.',empty:'선택 조건의 데이터가 없습니다.'};
+  return {items:group(rs,'product'),symbol:'₩',basis:'일반 성과 원본 · KRW · 원본 상품 분류 기준. Amazon 캠페인을 선택하면 키워드 원본의 모델별 성과를 표시합니다.',empty:'선택 조건의 데이터가 없습니다.'};
 }
 function productBars(items,key,symbol,empty){
   const total=items.reduce((s,r)=>s+r[key],0);
