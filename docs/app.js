@@ -74,7 +74,23 @@ $('budgetSettings').onclick=()=>{$('nav').querySelector('[data-view=source]').cl
 
 const activeRows=()=>view==='keyword'?keywordRows:rows;
 function fillOptions(id,key,label,data=activeRows()){$(id).innerHTML='<option value="">'+label+'</option>'+[...new Set(data.map(r=>r[key]).filter(Boolean))].sort().map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('')}
-function refreshFilters(){$('creativeGroupFilter').hidden=view!=='creative';$('creativeAdFilter').hidden=view!=='creative';$('creativeGroup').value='';$('creativeAd').value='';const kw=view==='keyword';$('campaignFilter').hidden=!(kw||view==='campaign'||view==='creative');fillOptions('campaign','campaign','전체 캠페인');$('keywordFilter').hidden=!kw;fillOptions('keyword','keyword','전체 키워드',keywordRows);$('typeFilter').hidden=kw;$('group').hidden=false;$('search').placeholder=kw?'키워드 검색':'이름 검색';for(const option of $('group').options){option.disabled=kw&&option.value!=='keyword';option.hidden=option.disabled;}$('mediaFilter').hidden=kw;$('productLabel').textContent=kw?'ASIN':'상품';fillOptions('media','media','전체 매체');fillOptions('product','product',kw?'전체 ASIN':'전체 상품');fillOptions('type','ad type','전체 유형')}
+const hierarchyViews=['meta','amazon','campaign','creative'];
+function filterMediaRows(){
+  return activeRows().filter(r=>!['meta','amazon'].includes(view)||r.media===view);
+}
+function mediaMatches(r){return ['meta','amazon'].includes(view)?r.media===view:['campaign','keyword'].includes(view)?true:(!$('media').value||r.media===$('media').value);}
+function refreshFilters(){
+  const kw=view==='keyword',hierarchy=hierarchyViews.includes(view),base=filterMediaRows();
+  $('creativeGroupFilter').hidden=!hierarchy;$('creativeAdFilter').hidden=!['meta','creative'].includes(view);
+  $('creativeGroup').value='';$('creativeAd').value='';
+  $('campaignFilter').hidden=!(kw||hierarchy);fillOptions('campaign','campaign','전체 캠페인',base);
+  $('keywordFilter').hidden=!kw;fillOptions('keyword','keyword','전체 키워드',keywordRows);
+  $('typeFilter').hidden=kw;$('group').hidden=false;$('search').placeholder=kw?'키워드 검색':'이름 검색';
+  for(const option of $('group').options){option.disabled=kw&&option.value!=='keyword';option.hidden=option.disabled;}
+  $('mediaFilter').hidden=kw||['meta','amazon','campaign'].includes(view);
+  $('productLabel').textContent=kw?'ASIN':'상품';fillOptions('media','media','전체 매체',base);
+  fillOptions('product','product',kw?'전체 ASIN':'전체 상품',base);fillOptions('type','ad type','전체 유형',base);
+}
 let datePreset='month';
 function presetRange(preset,today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())){
  const d=new Date(today+'T00:00:00Z'),iso=d=>d.toISOString().slice(0,10),shift=n=>{const x=new Date(d);x.setUTCDate(x.getUTCDate()+n);return iso(x)};
@@ -88,7 +104,15 @@ function syncDateButtons(){document.querySelectorAll('[data-period]').forEach(b=
 function applyDatePreset(preset){datePreset=preset;const dates=preset==='all'?activeRows().map(r=>r.date).sort():[];const range=preset==='all'?[dates[0]||'',dates.at(-1)||'']:presetRange(preset);[$('start').value,$('end').value]=range;syncDateButtons()}
 function initialize(){applyDatePreset('month');refreshFilters();page=0;render()}
 
-function selected(ignoreDates=false){return activeRows().filter(r=>(ignoreDates||!$('start').value||r.date>=$('start').value)&&(ignoreDates||!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)&&(!['keyword','campaign','creative'].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)&&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)&&(!(view==='amazon'||view==='meta')||r.media===view)&&(view!=='creative'||(r.ad&&(!$('creativeGroup').value||r.adset===$('creativeGroup').value)&&(!$('creativeAd').value||r.ad===$('creativeAd').value))))}
+function selected(ignoreDates=false){
+  return activeRows().filter(r=>(ignoreDates||!$('start').value||r.date>=$('start').value)&&(ignoreDates||!$('end').value||r.date<=$('end').value)
+    &&mediaMatches(r)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)
+    &&(!['keyword',...hierarchyViews].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)
+    &&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)
+    &&(!hierarchyViews.includes(view)||!$('creativeGroup').value||r.adset===$('creativeGroup').value)
+    &&(!['meta','creative'].includes(view)||!$('creativeAd').value||r.ad===$('creativeAd').value)
+    &&(view!=='creative'||Boolean(r.ad)));
+}
 function render(){if(view==='compare'){if(typeof renderComparison==='function')renderComparison();return;}renderBudget();syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
 $('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);drawProductPanels(rs);drawMediaDonuts(rs);let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
 
@@ -184,7 +208,7 @@ const keywordColumns=['name','cost','imp','click','ctr','cpm','cpc','view','dpv'
 const activeColumns=()=>view==='keyword'?keywordColumns:columns;
 function drawTable(){const columns=activeColumns();$('toggleCampaigns').hidden=view!=='keyword';$('toggleCampaigns').textContent=keywordCampaignsExpanded?'캠페인 전체 접기':'캠페인 전체 펼치기';$('toggleCampaigns').setAttribute('aria-expanded',String(keywordCampaignsExpanded));$('tableTitle').textContent=view==='keyword'?'키워드 성과 상세':'성과 상세';tableRows.sort(compareTableRows);tableRows.forEach(r=>r.campaigns?.sort(compareTableRows));let pages=Math.max(1,Math.ceil(tableRows.length/15));page=Math.min(page,pages-1);$('table').innerHTML='<thead><tr>'+columns.map(([k,l])=>`<th><button data-sort="${k}" style="border:0;background:none;color:inherit;padding:0;white-space:nowrap">${l}${sortKey===k?(sortDir===1?' ↑':' ↓'):''}</button></th>`).join('')+'</tr></thead><tbody>'+tableRows.slice(page*15,page*15+15).map(r=>tableRowHtml(r,columns)+(keywordCampaignsExpanded?r.campaigns||[]:[]).map(c=>tableRowHtml(c,columns,true)).join('')).join('')+'</tbody>';$('count').textContent=view==='keyword'?`${tableRows.length}개 키워드 · ${keywordCampaignsExpanded?'하위 행은 캠페인별 상세':'키워드 합계'} · 금액 단위 JPY`:`${tableRows.length}개 항목 · * Meta 구매·매출·관련 비율은 추정`;$('page').textContent=`${page+1} / ${pages}`;$('prev').disabled=page===0;$('next').disabled=page===pages-1;$('table').querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{let k=b.dataset.sort;sortDir=sortKey===k?-sortDir:-1;sortKey=k;drawTable()})}
 $('toggleCampaigns').onclick=()=>{keywordCampaignsExpanded=!keywordCampaignsExpanded;drawTable()};
-document.querySelectorAll('#filters input:not(#keywordSearch),#filters select,#group,#search,#grain,#trendMetric,#lineMetric,#campaignMetric').forEach(el=>el.addEventListener(el.id==='search'?'input':'change',()=>{if(el.id==='start'||el.id==='end'){datePreset=null;syncDateButtons()}if(el.id==='group'&&['keyword','asin'].includes(el.value)&&view!=='keyword'){const key=el.value;$('nav').querySelector('[data-view=keyword]').click();$('group').value=key;}page=0;render()}));$('reset').onclick=()=>{applyDatePreset('all');page=0;render()};document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{applyDatePreset(b.dataset.period);page=0;render()});$('prev').onclick=()=>{page--;drawTable()};$('next').onclick=()=>{page++;drawTable()};
+document.querySelectorAll('#filters input:not(#keywordSearch),#filters select,#group,#search,#grain,#trendMetric,#lineMetric,#campaignMetric').forEach(el=>el.addEventListener(el.id==='search'?'input':'change',()=>{if(el.id==='campaign'){$('creativeGroup').value='';$('creativeAd').value='';}if(el.id==='creativeGroup')$('creativeAd').value='';if(el.id==='start'||el.id==='end'){datePreset=null;syncDateButtons()}if(el.id==='group'&&['keyword','asin'].includes(el.value)&&view!=='keyword'){const key=el.value;$('nav').querySelector('[data-view=keyword]').click();$('group').value=key;}page=0;render()}));$('reset').onclick=()=>{applyDatePreset('all');page=0;render()};document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{applyDatePreset(b.dataset.period);page=0;render()});$('prev').onclick=()=>{page--;drawTable()};$('next').onclick=()=>{page++;drawTable()};
 const titles={compare:'광고 성과 기간 비교',overview:'광고 성과 한눈에 보기',amazon:'Amazon PPC 성과',meta:'Meta 광고 성과',keyword:'키워드별 성과 분석',campaign:'캠페인별 성과 분석',creative:'소재별 성과 분석',source:'데이터 관리'};
 $('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{view=b.dataset.view;$('title').textContent=titles[view];$('nav').querySelectorAll('button').forEach(n=>n.classList.toggle('active',n===b));$('comparison').hidden=view!=='compare';$('source').hidden=view!=='source';$('dashboard').hidden=['source','compare'].includes(view);$('filters').hidden=['source','compare'].includes(view);$('export').hidden=['source','compare'].includes(view);$('media').value='';$('product').value='';$('type').value='';$('group').value=view==='keyword'?'keyword':view==='campaign'?'campaign':view==='creative'?'ad':view==='amazon'?'ad type':view==='meta'?'adset':'media';if(view!=='source'){refreshFilters();if(datePreset)applyDatePreset(datePreset);}page=0;render()});
 function csvParse(text){let all=[],row=[],s='',q=false;for(let i=0;i<text.length;i++){let c=text[i];if(c==='"'){if(q&&text[i+1]==='"'){s+='"';i++}else q=!q}else if(c===','&&!q){row.push(s);s=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&text[i+1]==='\n')i++;row.push(s);if(row.some(x=>x!==''))all.push(row);row=[];s=''}else s+=c}if(q)throw Error('CSV의 따옴표가 닫히지 않았습니다.');row.push(s);if(row.some(x=>x!==''))all.push(row);return all}
@@ -427,8 +451,8 @@ function drawDailyTable(rs=selected()){
 $('dailyMonth').addEventListener('change',()=>drawDailyTable());
 
 function syncCreativeFilters(){
-  if(view!=='creative')return;
-  const base=rows.filter(r=>r.ad&&(!$('start').value||r.date>=$('start').value)&&(!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value));
+  if(!hierarchyViews.includes(view))return;
+  const base=filterMediaRows().filter(r=>(view!=='creative'||r.ad)&&(!$('start').value||r.date>=$('start').value)&&(!$('end').value||r.date<=$('end').value)&&mediaMatches(r)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value));
   const update=(id,key,label,data)=>{
     const old=$(id).value;fillOptions(id,key,label,data);
     if([...$(id).options].some(o=>o.value===old))$(id).value=old;
