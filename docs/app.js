@@ -90,7 +90,27 @@ function initialize(){applyDatePreset('month');refreshFilters();page=0;render()}
 
 function selected(ignoreDates=false){return activeRows().filter(r=>(ignoreDates||!$('start').value||r.date>=$('start').value)&&(ignoreDates||!$('end').value||r.date<=$('end').value)&&(!$('media').value||r.media===$('media').value)&&(!$('product').value||r.product===$('product').value)&&(!$('type').value||r['ad type']===$('type').value)&&(!['keyword','campaign','creative'].includes(view)||!$('campaign').value||r.campaign===$('campaign').value)&&(view!=='keyword'||!$('keyword').value||r.keyword===$('keyword').value)&&(!(view==='amazon'||view==='meta')||r.media===view)&&(view!=='creative'||(r.ad&&(!$('creativeGroup').value||r.adset===$('creativeGroup').value)&&(!$('creativeAd').value||r.ad===$('creativeAd').value))))}
 function render(){if(view==='compare'){if(typeof renderComparison==='function')renderComparison();return;}renderBudget();syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
-$('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);drawProductPanels(rs);let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
+$('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);drawProductPanels(rs);drawMediaDonuts(rs);let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
+
+
+function mediaDonutMarkup(data,key,label){
+  const items=[...data].sort((a,b)=>({meta:0,amazon:1}[a.name]??2)-({meta:0,amazon:1}[b.name]??2)||a.name.localeCompare(b.name));
+  const total=items.reduce((s,r)=>s+r[key],0),amount=v=>(key==='click'?'': '₩')+fmt(v)+(key==='click'?'회':'');
+  const names={meta:'Meta',amazon:'Amazon'},colors={meta:'#3568b0',amazon:'#da8a3b'};
+  const values=items.map(r=>({...r,label:names[r.name]||r.name,color:colors[r.name]||'#8293a9',share:total>0?r[key]/total:0}));
+  let offset=0;
+  const segments=total>0?values.filter(r=>r[key]>0).map(r=>{
+    const start=offset;offset+=r.share*100;
+    return '<circle cx="115" cy="105" r="76" fill="none" stroke="'+r.color+'" stroke-width="21" pathLength="100" stroke-dasharray="'+r.share*100+' '+(100-r.share*100)+'" stroke-dashoffset="'+(-start)+'" transform="rotate(-90 115 105)"><title>'+esc(r.label+' '+amount(r[key])+' · '+fmt(r.share,true))+'</title></circle>';
+  }).join(''):'';
+  const description=label+' 합계 '+amount(total)+(total>0?' · '+values.map(r=>r.label+' '+fmt(r.share,true)).join(' · '):' · 표시할 실적 없음');
+  return '<section class="panel media-donut-card"><h2>'+label+'</h2><svg viewBox="0 0 230 210" role="img" aria-label="'+esc(description)+'"><circle cx="115" cy="105" r="76" fill="none" stroke="#edf1f6" stroke-width="21"/>'+segments+'<text x="115" y="92" text-anchor="middle" class="donut-total-label">합계</text><text x="115" y="119" text-anchor="middle" class="donut-total-value" font-size="'+(amount(total).length>13?12:16)+'">'+esc(amount(total))+'</text></svg><ul class="media-donut-legend">'+values.map(r=>'<li><span><i style="background:'+r.color+'"></i>'+esc(r.label)+'</span><strong>'+esc(amount(r[key]))+'</strong><small>'+ (total>0?fmt(r.share,true):'—')+'</small></li>').join('')+'</ul>'+(total>0?'':'<p class="donut-empty">선택 조건에 표시할 실적이 없습니다.</p>')+'</section>';
+}
+function drawMediaDonuts(rs){
+  const panel=$('summaryMediaDonuts');panel.hidden=view!=='overview';if(panel.hidden)return;
+  const data=group(rs,'media');
+  $('mediaDonutGrid').innerHTML=[['cost','매체별 광고비'],['click','매체별 클릭'],['sales','매체별 매출']].map(([key,label])=>mediaDonutMarkup(data,key,label)).join('');
+}
 
 function productPanelData(rs){
   const keywordMode=view==='keyword';

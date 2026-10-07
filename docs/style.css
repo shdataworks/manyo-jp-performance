@@ -45,3 +45,19 @@
 
 
 .product-breakdown-chart{max-height:340px;overflow:auto;padding-right:8px}.product-breakdown-basis{font-size:12px;color:#71819c;line-height:1.6;margin:-10px 0 24px}.product-breakdown-chart .barlabel span{overflow-wrap:anywhere}.product-breakdown-chart .barlabel strong{white-space:nowrap}
+
+.media-donut-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.media-donut-card{min-width:0;margin-bottom:0!important;padding:22px}
+.media-donut-card h2{font-size:17px;margin:0 0 10px}
+.media-donut-card svg{display:block;width:100%;max-width:245px;margin:0 auto}
+.donut-total-label{font-size:12px;fill:#71819c}
+.donut-total-value{font-weight:700;fill:#1c2940;font-variant-numeric:tabular-nums}
+.media-donut-legend{list-style:none;padding:0;margin:10px 0 0}
+.media-donut-legend li{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:9px 0;border-top:1px solid #e8edf4;font-size:12px}
+.media-donut-legend li>span{display:flex;gap:7px;align-items:center}
+.media-donut-legend i{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.media-donut-legend strong{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+.media-donut-legend small{font-size:11px;color:#71819c;min-width:48px;text-align:right}
+.media-donut-basis{font-size:12px;color:#71819c;margin:10px 0 24px;line-height:1.6}
+.donut-empty{font-size:12px;color:#71819c;text-align:center}
+@media(max-width:1000px){.media-donut-grid{grid-template-columns:1fr}.media-donut-card svg{max-width:220px}}
