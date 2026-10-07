@@ -43,3 +43,26 @@
 
 #cmpTable{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0}#cmpTable th,#cmpTable td{min-width:100px}#cmpTable thead tr:first-child th{text-align:center;border-bottom:1px solid #d9e2ef}#cmpTable thead tr:first-child th:first-child,#cmpTable tbody td:first-child{position:sticky;left:0;z-index:2;min-width:280px;max-width:360px;white-space:normal;box-shadow:2px 0 0 #dce4ef;text-align:left;background:#fff}#cmpTable thead tr:first-child th:first-child{background:#f4f7fb;z-index:3}#cmpTable tbody td:nth-child(4n+2),#cmpTable thead tr:nth-child(2) th:nth-child(4n+1){border-left:1px solid #d9e2ef}
 
+
+/* Period blocks mirror the reference comparison report. */
+.cmp-report-controls{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:18px 0 12px}
+.cmp-report-controls label{display:grid;gap:6px;color:#63738a;font-size:12px}
+.cmp-report-controls span{color:#748198;font-size:12px;flex:1;min-width:240px;line-height:1.7}
+.cmp-report-controls [hidden]{display:none}
+.cmp-report-scroll{max-height:660px;overflow:auto;border:1px solid #e0e7f0;border-radius:6px}
+.cmp-report-scroll:focus-visible{outline:2px solid #395f9e;outline-offset:3px}
+#cmpTable thead th{position:sticky;top:0;z-index:4;background:#f4f7fb}
+#cmpTable thead tr:first-child th{height:44px;padding:0 12px;box-sizing:border-box}
+#cmpTable thead tr:nth-child(2) th{top:44px;height:44px;padding:0 12px}
+#cmpTable thead tr:first-child th:first-child{top:0;z-index:6}
+#cmpTable tfoot td{background:#eaf1fa;border-top:2px solid #bacbe2;font-weight:600}
+#cmpTable tfoot td:first-child{position:sticky;left:0;z-index:2;min-width:280px;max-width:360px;white-space:normal;background:#eaf1fa;box-shadow:2px 0 0 #dce4ef;text-align:left}
+#cmpTable.cmp-period-layout tbody td:nth-child(4n+2),#cmpTable.cmp-period-layout thead tr:nth-child(2) th:nth-child(4n+1){border-left:0}
+#cmpTable.cmp-period-layout td{padding:12px;min-width:100px;font-variant-numeric:tabular-nums}
+#cmpTable.cmp-period-layout .cmp-band-before{background:#edf2f8;color:#4c627d}
+#cmpTable.cmp-period-layout .cmp-band-after{background:#e4edfb;color:#244f89}
+#cmpTable.cmp-period-layout .cmp-band-delta,#cmpTable.cmp-period-layout .cmp-band-rate{background:#f5ebdb;color:#77592a}
+#cmpTable.cmp-period-layout td.cmp-part-after{background:#f7faff}
+#cmpTable.cmp-period-layout td.cmp-part-delta,#cmpTable.cmp-period-layout td.cmp-part-rate{background:#fffcf7}
+#cmpTable.cmp-period-layout td.cmp-part-before+td.cmp-part-after,#cmpTable.cmp-period-layout td.cmp-part-after+td.cmp-part-delta{border-left:2px solid #c8d5e7}
+#cmpTable.cmp-period-layout tfoot td{background:#eaf1fa}
