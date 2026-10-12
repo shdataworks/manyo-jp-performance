@@ -113,7 +113,7 @@ function selected(ignoreDates=false){
     &&(!['meta','creative'].includes(view)||!$('creativeAd').value||r.ad===$('creativeAd').value)
     &&(view!=='creative'||Boolean(r.ad)));
 }
-function render(){if(view==='compare'){if(typeof renderComparison==='function')renderComparison();return;}renderBudget();syncCreativeFilters();syncKeywordPicker();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
+function render(){if(view==='compare'){if(typeof renderComparison==='function')renderComparison();return;}renderBudget();syncCreativeFilters();syncKeywordPicker();syncFilterPickers();if(view==='source')return;for(const id of ['performanceNotice','kpis','trendPanel','breakdownPanels'])$(id).hidden=false;let rs=selected(),s=sum(rs);const basis=view==='meta'?'Shop now 클릭 × 5% 추정':view==='keyword'?'키워드 광고 보고값':view==='amazon'?'Amazon 광고 보고값':'통합 성과',currency=view==='keyword'?'JPY':'KRW';const cards=[['광고비',fmt(s.cost),currency],['노출',fmt(s.imp),'회'],['클릭',fmt(s.click),'CTR '+fmt(s.ctr,true)],['구매',fmt(s.purchase),basis],['매출',fmt(s.sales),currency+' · '+basis],[view==='meta'?'추정 ROAS':'ROAS',fmt(s.roas,true),view==='meta'?'추정 매출 ÷ 광고비':'매출 ÷ 광고비']];$('kpis').innerHTML=cards.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><strong>${c[1]}</strong><small>${c[2]}</small></div>`).join('');$('period').textContent=`${$('start').value} — ${$('end').value} · ${nf.format(rs.length)}개 원본 행`;
 $('amazonCampaignPanel').hidden=view!=='amazon';drawChart(rs);if(view==='amazon')drawCampaignChart(rs);drawProductPanels(rs);drawMediaDonuts(rs);let k=view==='keyword'?'keyword':$('group').value;tableRows=(view==='keyword'?groupKeywordCampaigns(rs):group(rs,k)).filter(r=>r.name.toLowerCase().includes($('search').value.toLowerCase()));drawTable();drawDailyTable(rs)}
 
 
@@ -212,7 +212,7 @@ const keywordColumns=['name','cost','imp','click','ctr','cpm','cpc','view','dpv'
 const activeColumns=()=>view==='keyword'?keywordColumns:columns;
 function drawTable(){const columns=activeColumns();$('toggleCampaigns').hidden=view!=='keyword';$('toggleCampaigns').textContent=keywordCampaignsExpanded?'캠페인 전체 접기':'캠페인 전체 펼치기';$('toggleCampaigns').setAttribute('aria-expanded',String(keywordCampaignsExpanded));$('tableTitle').textContent=view==='keyword'?'키워드 성과 상세':'성과 상세';tableRows.sort(compareTableRows);tableRows.forEach(r=>r.campaigns?.sort(compareTableRows));let pages=Math.max(1,Math.ceil(tableRows.length/15));page=Math.min(page,pages-1);$('table').innerHTML='<thead><tr>'+columns.map(([k,l])=>`<th><button data-sort="${k}" style="border:0;background:none;color:inherit;padding:0;white-space:nowrap">${l}${sortKey===k?(sortDir===1?' ↑':' ↓'):''}</button></th>`).join('')+'</tr></thead><tbody>'+tableRows.slice(page*15,page*15+15).map(r=>tableRowHtml(r,columns)+(keywordCampaignsExpanded?r.campaigns||[]:[]).map(c=>tableRowHtml(c,columns,true)).join('')).join('')+'</tbody>';$('count').textContent=view==='keyword'?`${tableRows.length}개 키워드 · ${keywordCampaignsExpanded?'하위 행은 캠페인별 상세':'키워드 합계'} · 금액 단위 JPY`:`${tableRows.length}개 항목 · * Meta 구매·매출·관련 비율은 추정`;$('page').textContent=`${page+1} / ${pages}`;$('prev').disabled=page===0;$('next').disabled=page===pages-1;$('table').querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{let k=b.dataset.sort;sortDir=sortKey===k?-sortDir:-1;sortKey=k;drawTable()})}
 $('toggleCampaigns').onclick=()=>{keywordCampaignsExpanded=!keywordCampaignsExpanded;drawTable()};
-document.querySelectorAll('#filters input:not(#keywordSearch),#filters select,#group,#search,#grain,#trendMetric,#lineMetric,#campaignMetric').forEach(el=>el.addEventListener(el.id==='search'?'input':'change',()=>{if(el.id==='campaign'){$('creativeGroup').value='';$('creativeAd').value='';}if(el.id==='creativeGroup')$('creativeAd').value='';if(el.id==='start'||el.id==='end'){datePreset=null;syncDateButtons()}if(el.id==='group'&&['keyword','asin'].includes(el.value)&&view!=='keyword'){const key=el.value;$('nav').querySelector('[data-view=keyword]').click();$('group').value=key;}page=0;render()}));$('reset').onclick=()=>{applyDatePreset('all');page=0;render()};document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{applyDatePreset(b.dataset.period);page=0;render()});$('prev').onclick=()=>{page--;drawTable()};$('next').onclick=()=>{page++;drawTable()};
+document.querySelectorAll('#filters input:not([type=search]),#filters select,#group,#search,#grain,#trendMetric,#lineMetric,#campaignMetric').forEach(el=>el.addEventListener(el.id==='search'?'input':'change',()=>{if(el.id==='campaign'){$('creativeGroup').value='';$('creativeAd').value='';}if(el.id==='creativeGroup')$('creativeAd').value='';if(el.id==='start'||el.id==='end'){datePreset=null;syncDateButtons()}if(el.id==='group'&&['keyword','asin'].includes(el.value)&&view!=='keyword'){const key=el.value;$('nav').querySelector('[data-view=keyword]').click();$('group').value=key;}page=0;render()}));$('reset').onclick=()=>{applyDatePreset('all');page=0;render()};document.querySelectorAll('[data-period]').forEach(b=>b.onclick=()=>{applyDatePreset(b.dataset.period);page=0;render()});$('prev').onclick=()=>{page--;drawTable()};$('next').onclick=()=>{page++;drawTable()};
 const titles={compare:'광고 성과 기간 비교',overview:'광고 성과 한눈에 보기',amazon:'Amazon PPC 성과',meta:'Meta 광고 성과',keyword:'키워드별 성과 분석',campaign:'캠페인별 성과 분석',creative:'소재별 성과 분석',source:'데이터 관리'};
 $('nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{view=b.dataset.view;$('title').textContent=titles[view];$('nav').querySelectorAll('button').forEach(n=>n.classList.toggle('active',n===b));$('comparison').hidden=view!=='compare';$('source').hidden=view!=='source';$('dashboard').hidden=['source','compare'].includes(view);$('filters').hidden=['source','compare'].includes(view);$('export').hidden=['source','compare'].includes(view);$('media').value='';$('product').value='';$('type').value='';$('group').value=view==='keyword'?'keyword':view==='campaign'?'campaign':view==='creative'?'ad':view==='amazon'?'ad type':view==='meta'?'adset':'media';if(view!=='source'){refreshFilters();if(datePreset)applyDatePreset(datePreset);}page=0;render()});
 function csvParse(text){let all=[],row=[],s='',q=false;for(let i=0;i<text.length;i++){let c=text[i];if(c==='"'){if(q&&text[i+1]==='"'){s+='"';i++}else q=!q}else if(c===','&&!q){row.push(s);s=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&text[i+1]==='\n')i++;row.push(s);if(row.some(x=>x!==''))all.push(row);row=[];s=''}else s+=c}if(q)throw Error('CSV의 따옴표가 닫히지 않았습니다.');row.push(s);if(row.some(x=>x!==''))all.push(row);return all}
@@ -466,3 +466,54 @@ function syncCreativeFilters(){
   update('creativeGroup','adset','전체 그룹',campaigns);
   update('creativeAd','ad','전체 소재',campaigns.filter(r=>!$('creativeGroup').value||r.adset===$('creativeGroup').value));
 }
+
+function closeFilterPicker(id){
+  $(id+'Popup').hidden=true;
+  $(id+'Toggle').setAttribute('aria-expanded','false');
+}
+function syncFilterPickers(){
+  for(const id of ['campaign','creativeGroup','creativeAd']){
+    $(id+'Toggle').textContent=$(id).selectedOptions[0]?.text||$(id).options[0].text;
+    closeFilterPicker(id);
+  }
+}
+function drawFilterOptions(id,label){
+  const query=$(id+'Search').value.trim().toLocaleLowerCase();
+  const options=[...$(id).options].filter(o=>!o.value||o.text.toLocaleLowerCase().includes(query));
+  $(id+'Options').innerHTML=options.map(o=>`<button type="button" class="keyword-option" data-value="${esc(o.value)}" aria-pressed="${o.value===$(id).value}">${esc(o.text)}</button>`).join('');
+  const count=options.filter(o=>o.value).length;
+  $(id+'ResultCount').textContent=count?`${nf.format(count)}개 ${label}`:'검색 결과가 없습니다.';
+}
+for(const [id,container,label] of [['campaign','campaignFilter','캠페인'],['creativeGroup','creativeGroupFilter','그룹'],['creativeAd','creativeAdFilter','소재']]){
+  const toggle=$(id+'Toggle'),popup=$(id+'Popup'),search=$(id+'Search'),results=$(id+'Options');
+  toggle.onclick=()=>{
+    if(!popup.hidden){closeFilterPicker(id);return;}
+    syncFilterPickers();closeKeywordPicker();
+    search.value='';drawFilterOptions(id,label);popup.hidden=false;
+    toggle.setAttribute('aria-expanded','true');search.focus();
+  };
+  search.addEventListener('input',()=>drawFilterOptions(id,label));
+  results.onclick=e=>{
+    const option=e.target.closest('[data-value]');if(!option)return;
+    $(id).value=option.dataset.value;
+    $(id).dispatchEvent(new Event('change',{bubbles:true}));
+    closeFilterPicker(id);toggle.focus();
+  };
+  $(container).addEventListener('keydown',e=>{
+    if(e.isComposing||popup.hidden)return;
+    if(e.key==='Escape'){closeFilterPicker(id);toggle.focus();e.preventDefault();}
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+      const options=[...results.querySelectorAll('button')];if(!options.length)return;
+      const index=options.indexOf(document.activeElement);
+      const next=index<0?(e.key==='ArrowDown'?0:options.length-1):(index+(e.key==='ArrowDown'?1:-1)+options.length)%options.length;
+      options[next].focus();e.preventDefault();
+    }
+    if(e.key==='Enter'&&e.target===search){
+      const matching=[...results.querySelectorAll('button')].filter(b=>b.dataset.value);
+      if(matching.length===1){matching[0].click();e.preventDefault();}
+    }
+  });
+  document.addEventListener('click',e=>{if(!$(container).contains(e.target))closeFilterPicker(id);});
+  $(container).addEventListener('focusout',e=>{if(!$(container).contains(e.relatedTarget))closeFilterPicker(id);});
+}
+syncFilterPickers();
