@@ -25,11 +25,63 @@ function tableRowHtml(r,columns,child=false){
   const name=child?`<span class="campaign-branch" aria-hidden="true">↳</span><span class="campaign-name"><small>캠페인</small>${esc(r.name)}</span>`:esc(r.name);
   return `<tr class="${child?'keyword-campaign-row':r.campaigns&&keywordCampaignsExpanded?'keyword-total-row':''}">`+columns.map(([k])=>k==='name'?`<td class="${child?'campaign-label':''}">${name}${r.campaigns&&keywordCampaignsExpanded?`<small class="campaign-count">${r.campaigns.length}개 캠페인 합계</small>`:''}</td>`:`<td>${fmt(r[k],percentages.includes(k))}</td>`).join('')+'</tr>';
 }
-const BUDGET_KEY='manyo-monthly-budgets-v1';
+const BUDGET_SHEET_URL='https://docs.google.com/spreadsheets/d/1KUezmcwvTmioQfoWoyg9ueen5p8mxOygUBQ4G2HIY0Y/edit?gid=2026101301#gid=2026101301';
+const BUDGET_FEED_URL='https://docs.google.com/spreadsheets/d/e/2PACX-1vRNJ7KB0JNfunTk1SBh-UQYiK3HiW5itArnJ_51rKfCpckxGQ5x6K6P9khSS-46rfzlQGBYTmDIDXa2/pub?gid=2026101301&single=true&output=csv';
 const budgetToday=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-let monthlyBudgets={},budgetReadError=false;
+let monthlyBudgets={},budgetState={loaded:false,loading:false,error:'',message:'공통 목표 불러오는 중'};
+let budgetRequest=null;
 function validBudget(v){return typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;}
-try{const saved=JSON.parse(localStorage.getItem(BUDGET_KEY)||'{}');for(const [month,values] of Object.entries(saved||{})){if(/^\d{4}-(0[1-9]|1[0-2])$/.test(month)&&values&&typeof values==='object'){monthlyBudgets[month]={};for(const media of ['meta','amazon'])if(validBudget(values[media]))monthlyBudgets[month][media]=values[media];}}}catch{budgetReadError=true;}
+function normalizeBudgets(matrix){
+  const headers=['월','Meta 목표 광고비 (KRW)','Amazon 목표 광고비 (KRW)'];
+  if(!Array.isArray(matrix)||headers.some((h,i)=>String(matrix[0]?.[i]??'').replace(/^\uFEFF/,'').trim()!==h))throw Error('Budget 시트의 A~C열 제목을 확인하세요.');
+  const result={};
+  for(const [index,row] of matrix.slice(1).entries()){
+    if(row.every(v=>String(v??'').trim()===''))continue;
+    const month=String(row[0]??'').trim();
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))throw Error((index+2)+'행의 월을 YYYY-MM 형식으로 입력하세요.');
+    if(Object.hasOwn(result,month))throw Error(month+' 월이 중복되어 있습니다.');
+    const values={};
+    for(const [media,column] of [['meta',1],['amazon',2]]){
+      const raw=String(row[column]??'').replace(/,/g,'').trim();
+      if(raw==='')continue;
+      if(!/^\d+$/.test(raw)||!validBudget(Number(raw)))throw Error(month+' '+(media==='meta'?'Meta':'Amazon')+' 목표는 0 이상의 원화 정수여야 합니다.');
+      values[media]=Number(raw);
+    }
+    result[month]=values;
+  }
+  return result;
+}
+function updateBudgetStatus(){
+  $('budgetSaveStatus').textContent=budgetState.message+(budgetState.error?' · '+budgetState.error:'');
+}
+async function readBudgetResponse(url,format){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+  try{
+    const response=await fetch(url+(url.includes('?')?'&':'?')+'_='+Date.now(),{cache:'no-store',credentials:'omit',signal:controller.signal});
+    if(!response.ok)throw Error('목표 연결 응답 오류: '+response.status);
+    return format==='json'?await response.json():csvParse(await response.text());
+  }finally{clearTimeout(timer);}
+}
+function refreshBudgets(){
+  if(budgetRequest)return budgetRequest;
+  budgetState.loading=true;budgetState.message=budgetState.loaded?'공통 목표 갱신 중':'공통 목표 불러오는 중';updateBudgetStatus();
+  budgetRequest=(async()=>{
+    if(!budgetState.loaded){
+      try{monthlyBudgets=normalizeBudgets(await readBudgetResponse('budgets.json','json'));budgetState.loaded=true;budgetState.message='공통 목표 · 배포 저장본';loadBudgetForm();renderBudget();}catch{}
+    }
+    try{
+      const next=normalizeBudgets(await readBudgetResponse(BUDGET_FEED_URL,'csv'));
+      monthlyBudgets=next;budgetState.loaded=true;budgetState.error='';
+      budgetState.message='Budget 시트 조회 '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})+' KST';
+    }catch(error){
+      budgetState.error=error.name==='AbortError'?'시트 조회 시간 초과':error.message;
+      budgetState.message=budgetState.loaded?'공통 목표 · 배포/직전 조회값 표시 (시트 갱신 미완료)':'공통 목표 조회 실패';
+    }finally{
+      budgetState.loading=false;budgetRequest=null;loadBudgetForm();renderBudget();updateBudgetStatus();
+    }
+  })();
+  return budgetRequest;
+}
 function budgetStats(data,month,media,targets,today){
   const scope=media==='overview'?['meta','amazon']:[media];
   const relevant=data.filter(r=>r.date.slice(0,7)===month&&r.date<=today&&scope.includes(r.media));
@@ -43,34 +95,28 @@ function renderBudget(){
   const today=budgetToday(),month=$('budgetMonth').value||today.slice(0,7);$('budgetMonth').value=month;
   const s=budgetStats(rows,month,view,monthlyBudgets[month]||{},today),label=view==='overview'?'Meta + Amazon':view==='meta'?'Meta':'Amazon PPC';
   $('budgetScope').textContent=label+' · KRW';
-  $('budgetSpent').textContent=fmt(s.spent)+'원';$('budgetTarget').textContent=s.target===null?'목표 미설정':fmt(s.target)+'원';
+  $('budgetSpent').textContent=fmt(s.spent)+'원';$('budgetTarget').textContent=!budgetState.loaded?(budgetState.loading?'목표 불러오는 중':'목표 조회 실패'):s.target===null?'목표 미설정':fmt(s.target)+'원';
   $('budgetRate').textContent=s.rate===null?'—':fmt(s.rate,true);
   $('budgetFill').style.width=(s.rate===null?0:Math.min(100,Math.max(0,s.rate*100)))+'%';
   $('budgetPanel').classList.toggle('over-budget',s.target!==null&&s.spent>s.target);
   $('budgetProgress').setAttribute('aria-label',label+' 월 광고비 소진율');
   if(s.rate===null){$('budgetProgress').removeAttribute('aria-valuenow');$('budgetProgress').setAttribute('aria-valuetext',s.target===0?'목표 0원 · 소진율 계산 불가':'목표 미설정');}
   else{$('budgetProgress').setAttribute('aria-valuenow',String(Math.min(100,s.rate*100)));$('budgetProgress').setAttribute('aria-valuetext',fmt(s.rate,true));}
-  $('budgetRemaining').textContent=s.target===null?(view==='overview'?'Meta와 Amazon 목표를 모두 입력하면 합산 소진율을 표시합니다.':'데이터 관리에서 이 월의 목표 광고비를 입력하세요.'):(s.spent>s.target?'목표 초과 '+fmt(s.spent-s.target)+'원':'남은 예산 '+fmt(s.target-s.spent)+'원');
+  $('budgetRemaining').textContent=s.target===null?(view==='overview'?'Meta와 Amazon 목표를 모두 입력하면 합산 소진율을 표시합니다.':'Budget 시트에 이 월의 목표 광고비를 입력하세요.'):(s.spent>s.target?'목표 초과 '+fmt(s.spent-s.target)+'원':'남은 예산 '+fmt(s.target-s.spent)+'원');
   const dates=s.scope.map(media=>{const matched=rows.filter(r=>r.media===media&&r.date.slice(0,7)===month&&r.date<=today);return (media==='meta'?'Meta':'Amazon')+' '+(matched.length?latestDate(matched)+'까지':'데이터 없음');});
-  $('budgetBasis').textContent=month+' 월 전체 · '+dates.join(' / ')+' · 상단 기간·상품 필터와 별도 집계';
+  $('budgetBasis').textContent=month+' 월 전체 · '+dates.join(' / ')+' · 상단 기간·상품 필터와 별도 집계 · 공통 목표: '+budgetState.message;
 }
 function loadBudgetForm(){
-  const month=$('budgetEditMonth').value,values=monthlyBudgets[month]||{};
+  const values=monthlyBudgets[$('budgetEditMonth').value]||{};
   $('budgetMeta').value=values.meta??'';$('budgetAmazon').value=values.amazon??'';
-  $('budgetSaveStatus').textContent=budgetReadError?'저장된 목표를 읽지 못했습니다. 저장 공간 설정을 확인해 주세요.':'';
-}
-function saveBudgetForm(e){
-  e.preventDefault();const month=$('budgetEditMonth').value;
-  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)){$('budgetSaveStatus').textContent='목표를 적용할 월을 선택하세요.';return;}
-  const values={};for(const [media,id] of [['meta','budgetMeta'],['amazon','budgetAmazon']]){const input=$(id).value.trim();if(input==='')continue;const value=Number(input);if(!validBudget(value)){$('budgetSaveStatus').textContent='목표 광고비는 0 이상의 정수(원)로 입력하세요.';return;}values[media]=value;}
-  const next={...monthlyBudgets,[month]:values};
-  try{localStorage.setItem(BUDGET_KEY,JSON.stringify(next));monthlyBudgets=next;budgetReadError=false;$('budgetMonth').value=month;renderBudget();$('budgetSaveStatus').textContent=month+' 목표 광고비를 이 브라우저에 저장했습니다.';}
-  catch{$('budgetSaveStatus').textContent='저장하지 못했습니다. 브라우저 저장 공간 설정을 확인해 주세요.';}
+  updateBudgetStatus();
 }
 $('budgetMonth').value=budgetToday().slice(0,7);$('budgetEditMonth').value=budgetToday().slice(0,7);loadBudgetForm();
-$('budgetMonth').addEventListener('change',renderBudget);$('budgetEditMonth').addEventListener('change',loadBudgetForm);$('budgetForm').addEventListener('submit',saveBudgetForm);
-$('budgetSettings').onclick=()=>{$('nav').querySelector('[data-view=source]').click();$('budgetEditMonth').value=$('budgetMonth').value;loadBudgetForm();$('budgetMeta').focus();};
-
+$('budgetMonth').addEventListener('change',renderBudget);$('budgetEditMonth').addEventListener('change',loadBudgetForm);
+$('budgetForm').addEventListener('submit',e=>e.preventDefault());
+$('budgetSettings').onclick=()=>{$('nav').querySelector('[data-view=source]').click();$('budgetEditMonth').value=$('budgetMonth').value;loadBudgetForm();$('budgetSheetLink').focus();};
+$('budgetRefresh').onclick=()=>refreshBudgets();
+window.addEventListener('focus',()=>{if(budgetState.loaded)refreshBudgets();});
 
 const activeRows=()=>view==='keyword'?keywordRows:rows;
 function fillOptions(id,key,label,data=activeRows()){$(id).innerHTML='<option value="">'+label+'</option>'+[...new Set(data.map(r=>r[key]).filter(Boolean))].sort().map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('')}
@@ -357,7 +403,7 @@ $('refresh').onclick=async()=>{
   $('refresh').disabled=true;$('refreshSource').disabled=true;
   $('refresh').textContent='↻ 불러오는 중…';$('refreshSource').textContent='↻ 불러오는 중…';
   try{
-    await Promise.allSettled(dataSources.map(refreshDataset));
+    await Promise.allSettled([...dataSources.map(refreshDataset),refreshBudgets()]);
     updateDataStatus();
     if(dataSources.every(source=>!sourceStates[source.id].error)){
       const history=dataSources.map(source=>sourceStates[source.id].history).filter(Boolean).join(' · ');
@@ -517,3 +563,5 @@ for(const [id,container,label] of [['campaign','campaignFilter','캠페인'],['c
   $(container).addEventListener('focusout',e=>{if(!$(container).contains(e.relatedTarget))closeFilterPicker(id);});
 }
 syncFilterPickers();
+
+refreshBudgets();
