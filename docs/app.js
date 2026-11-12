@@ -27,7 +27,10 @@ function groupKeywordCampaigns(rs){
 }
 function compareTableRows(a,b){return sortDir*(typeof a[sortKey]==='string'?a[sortKey].localeCompare(b[sortKey]):(a[sortKey]??-Infinity)-(b[sortKey]??-Infinity));}
 function tableRowHtml(r,columns,child=false){
-  const name=child?`<span class="campaign-branch" aria-hidden="true">↳</span><span class="campaign-name"><small>캠페인</small>${esc(r.name)}</span>`:esc(r.name);
+  let name=child?`<span class="campaign-branch" aria-hidden="true">↳</span><span class="campaign-name"><small>캠페인</small>${esc(r.name)}</span>`:esc(r.name);
+  if(!child && view==='creative' && $('group').value==='ad' && r.estimate){
+    name='<button type="button" class="creative-preview-trigger" data-creative-name="'+esc(r.name)+'" title="Meta 소재 미리보기">'+esc(r.name)+' <span aria-hidden="true">↗</span></button>';
+  }
   return `<tr class="${child?'keyword-campaign-row':r.campaigns&&keywordCampaignsExpanded?'keyword-total-row':''}">`+columns.map(([k])=>k==='name'?`<td class="${child?'campaign-label':''}">${name}${r.campaigns&&keywordCampaignsExpanded?`<small class="campaign-count">${r.campaigns.length}개 캠페인 합계</small>`:''}</td>`:`<td>${fmt(r[k],percentages.includes(k))}</td>`).join('')+'</tr>';
 }
 const BUDGET_SHEET_URL='https://docs.google.com/spreadsheets/d/1KUezmcwvTmioQfoWoyg9ueen5p8mxOygUBQ4G2HIY0Y/edit?gid=2026101301#gid=2026101301';
@@ -570,3 +573,199 @@ for(const [id,container,label] of [['campaign','campaignFilter','캠페인'],['c
 syncFilterPickers();
 
 refreshBudgets();
+
+const JP_CREATIVE_FEED_URL = "https://script.google.com/macros/s/AKfycbw8kVr6wgh_7sgbcfNzkceY0JBPz1mwfeo7YyYHQN-NL638htSOFQaIrtJtKm9TatX3/exec?market=jp";
+$('table').addEventListener('click', event => {
+  const trigger=event.target.closest('[data-creative-name]');
+  if(trigger)document.dispatchEvent(new CustomEvent('manyo:creative-preview',{detail:{name:trigger.dataset.creativeName}}));
+});
+(function installCreativePreview() {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'creative-preview-dialog';
+  dialog.setAttribute('aria-labelledby', 'creativePreviewTitle');
+  dialog.innerHTML = '<div class="creative-preview-header"><div><h2 id="creativePreviewTitle">소재 미리보기</h2><p id="creativePreviewName"></p></div><button type="button" class="creative-preview-close" aria-label="미리보기 닫기">닫기 ×</button></div><p id="creativePreviewStatus" role="status" aria-live="polite"></p><div id="creativePreviewItems"></div>';
+  document.body.appendChild(dialog);
+  const nameLabel = dialog.querySelector('#creativePreviewName');
+  const status = dialog.querySelector('#creativePreviewStatus');
+  const container = dialog.querySelector('#creativePreviewItems');
+  const previewCache = new Map();
+  const previewRequests = new Map();
+  let previewSequence = 0;
+  const videoPlayers = new Map();
+  dialog.querySelector('.creative-preview-close').onclick = () => dialog.close();
+  dialog.addEventListener('click', event => {
+    if (event.target !== dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right ||
+      event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+  });
+  dialog.addEventListener('close', () => {
+    previewSequence++;
+    container.replaceChildren();
+  });
+
+  function safeUrl(value, image) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== 'https:' || url.username || url.password ||
+        [...url.searchParams.keys()].some(key => /^(access_token|appsecret_proof|client_token|authorization)$/i.test(key))) return '';
+      if (image) return /(^|\.)(fbcdn\.net|fbsbx\.com)$/.test(url.hostname) ? url.href : '';
+      if (url.hostname === 'business.facebook.com') return url.pathname === '/ads/api/preview_iframe.php' ? url.href : '';
+      return ['www.facebook.com', 'facebook.com', 'fb.me'].includes(url.hostname) ? url.href : '';
+    } catch { return ''; }
+  }
+
+  function addPreview(item) {
+    const card = document.createElement('article');
+    card.className = 'creative-preview-card';
+    const heading = document.createElement('h3');
+    heading.textContent = item.campaign || 'Meta 광고';
+    const context = document.createElement('p');
+    context.textContent = (item.adset || '광고 그룹 미지정') + ' · 광고 ID ' + item.id;
+    card.append(heading, context);
+    const previewUrl = safeUrl(item.previewUrl, false);
+    const imageUrl = safeUrl(item.imageUrl, true);
+    const thumbnailUrl = safeUrl(item.thumbnailUrl, true);
+    if (previewUrl) {
+      const frame = document.createElement('iframe');
+      frame.src = previewUrl;
+      frame.title = item.name + ' Meta 광고 미리보기';
+      frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+      frame.referrerPolicy = 'no-referrer';
+      frame.loading = 'lazy';
+      card.appendChild(frame);
+    }
+    if (!item.hasVideo && (imageUrl || thumbnailUrl)) {
+      const image = document.createElement('img');
+      image.src = imageUrl || thumbnailUrl;
+      image.alt = item.name + (imageUrl ? ' 소재 이미지' : ' 소재 썸네일');
+      image.loading = 'lazy';
+      image.referrerPolicy = 'no-referrer';
+      image.onerror = () => {
+        if (thumbnailUrl && image.src !== thumbnailUrl) { image.src = thumbnailUrl; return; }
+        image.remove();
+        const notice = document.createElement('p');
+        notice.textContent = '이미지가 만료되었거나 표시되지 않습니다. Meta 미리보기에서 확인해 주세요.';
+        card.appendChild(notice);
+      };
+      card.appendChild(image);
+    }
+    const linkUrl = safeUrl(item.previewLink, false);
+    if (linkUrl) {
+      const link = document.createElement('a');
+      link.href = linkUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Meta 광고 미리보기 열기 ↗';
+      card.appendChild(link);
+    }
+    if (!previewUrl && !imageUrl && !thumbnailUrl && !linkUrl) {
+      const notice = document.createElement('p');
+      notice.textContent = '이 광고는 미리보기 정보를 제공하지 않습니다.';
+      card.appendChild(notice);
+    }
+    container.appendChild(card);
+    if (item.hasVideo) loadVideoPlayer(card, item);
+  }
+
+
+
+  function fetchVideoPlayer(item) {
+    const existing = videoPlayers.get(item.id);
+    if (existing && Date.now() - existing.loadedAt < 300000) return existing.promise;
+    const request = new AbortController();
+    const timeout = setTimeout(() => request.abort(), 30000);
+    const url = new URL(JP_CREATIVE_FEED_URL);
+    url.searchParams.set('dataset', 'creativeVideo');
+    url.searchParams.set('name', item.name);
+    url.searchParams.set('adId', item.id);
+    const promise = fetch(url, {cache: 'no-store', credentials: 'omit', signal: request.signal})
+      .then(async response => {
+        if (!response.ok) throw Error('동영상 플레이어를 불러오지 못했습니다.');
+        const data = await response.json();
+        const source = data.ok ? safeUrl(data.previewUrl, false) : '';
+        if (!source) throw Error(data.error || '이 영상은 Meta 광고 미리보기 링크에서 재생해 주세요.');
+        return source;
+      })
+      .catch(error => { videoPlayers.delete(item.id); throw error; })
+      .finally(() => clearTimeout(timeout));
+    videoPlayers.set(item.id, {loadedAt: Date.now(), promise});
+    return promise;
+  }
+
+  async function loadVideoPlayer(card, item) {
+    const loading = document.createElement('p');
+    loading.className = 'creative-video-status';
+    loading.setAttribute('role', 'status');
+    loading.textContent = '동영상 플레이어를 불러오는 중…';
+    card.appendChild(loading);
+    try {
+      const source = await fetchVideoPlayer(item);
+      if (!card.isConnected) return;
+      const frame = document.createElement('iframe');
+      frame.className = 'creative-video-player';
+      frame.src = source;
+      frame.title = item.name + ' 동영상 광고';
+      frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+      frame.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+      frame.allowFullscreen = true;
+      frame.referrerPolicy = 'no-referrer';
+      const image = card.querySelector('img');
+      if (image) image.replaceWith(frame);
+      else card.insertBefore(frame, card.querySelector('a') || loading);
+      loading.textContent = '영상 안의 재생 버튼을 눌러주세요.';
+    } catch (error) {
+      if (card.isConnected) loading.textContent = error.message;
+    }
+  }
+
+  function fetchPreview(name) {
+    const saved = previewCache.get(name);
+    if (saved && Date.now() - saved.loadedAt < 300000) return Promise.resolve(saved.data);
+    if (previewRequests.has(name)) return previewRequests.get(name);
+    const request = new AbortController();
+    const timeout = setTimeout(() => request.abort(), 45000);
+    const url = new URL(JP_CREATIVE_FEED_URL);
+    url.searchParams.set('dataset', 'creative');
+    url.searchParams.set('name', name);
+    url.searchParams.set('_', Date.now());
+    const pending = fetch(url, {cache: 'no-store', credentials: 'omit', signal: request.signal})
+      .then(async response => {
+        if (!response.ok) throw Error('소재 조회에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+        const data = await response.json();
+        if (!data.ok || !Array.isArray(data.items)) throw Error(data.error || '소재 연결을 확인해 주세요.');
+        previewCache.set(name, {loadedAt: Date.now(), data});
+        return data;
+      })
+      .catch(error => {
+        throw Error(request.signal.aborted ? '소재 조회 시간이 초과되었습니다. 다시 눌러주세요.' : error.message);
+      })
+      .finally(() => { clearTimeout(timeout); previewRequests.delete(name); });
+    previewRequests.set(name, pending);
+    return pending;
+  }
+
+  async function openCreativePreview(name) {
+    const sequence = ++previewSequence;
+    nameLabel.textContent = name;
+    const saved = previewCache.get(name);
+    status.textContent = saved && Date.now() - saved.loadedAt < 300000 ? '소재 미리보기' : 'Meta 소재를 불러오는 중…';
+    container.replaceChildren();
+    if (!dialog.open) dialog.showModal();
+    try {
+      const data = await fetchPreview(name);
+      if (sequence !== previewSequence || !dialog.open) return;
+      const items = data.items.filter(item => item.name === name && /^\d+$/.test(String(item.id)));
+      if (!items.length) {
+        status.textContent = '해당 이름과 캠페인·광고 그룹이 일치하는 Meta 광고를 찾지 못했습니다.';
+        return;
+      }
+      status.textContent = items.length + '개 광고 · 같은 소재명의 광고는 캠페인·광고 그룹별로 표시합니다. 동영상 소재는 플레이어가 열리면 재생 버튼을 눌러주세요.';
+      items.forEach(addPreview);
+    } catch (error) {
+      if (sequence !== previewSequence || !dialog.open) return;
+      status.textContent = error.message;
+    }
+  }
+  document.addEventListener('manyo:creative-preview', event => openCreativePreview(event.detail.name));
+})();
