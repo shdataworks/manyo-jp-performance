@@ -592,6 +592,7 @@ $('table').addEventListener('click', event => {
   const previewRequests = new Map();
   let previewSequence = 0;
   const videoPlayers = new Map();
+  let retainedImagePreview = null;
   const sessionCacheKey = 'manyo-jp-creative-previews-v2';
   let warmQueue = [];
   let warming = false;
@@ -640,7 +641,7 @@ $('table').addEventListener('click', event => {
   });
   dialog.addEventListener('close', () => {
     previewSequence++;
-    container.replaceChildren();
+    if (!retainedImagePreview) container.replaceChildren();
   });
 
   function safeUrl(value, image) {
@@ -755,6 +756,12 @@ $('table').addEventListener('click', event => {
   async function openCreativePreview(name) {
     const sequence = ++previewSequence;
     nameLabel.textContent = name;
+    if (retainedImagePreview?.name === name &&
+      Date.now() - retainedImagePreview.loadedAt < 180000 && container.childElementCount) {
+      if (!dialog.open) dialog.showModal();
+      return;
+    }
+    retainedImagePreview = null;
     const saved = previewCache.get(name);
     status.textContent = saved && Date.now() - saved.loadedAt < 300000 ? '소재 미리보기' : 'Meta 소재를 불러오는 중…';
     container.replaceChildren();
@@ -769,6 +776,7 @@ $('table').addEventListener('click', event => {
       }
       status.textContent = items.length + '개 광고 · 같은 소재명의 광고는 캠페인·광고 그룹별로 표시합니다. 동영상은 미리보기 안의 재생 버튼을 눌러주세요.';
       items.forEach(addPreview);
+      if (items.length && items.every(item => !item.hasVideo)) retainedImagePreview = {name, loadedAt: Date.now()};
     } catch (error) {
       if (sequence !== previewSequence || !dialog.open) return;
       status.textContent = error.message;
