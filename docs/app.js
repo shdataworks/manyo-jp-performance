@@ -623,33 +623,6 @@ $('table').addEventListener('click', event => {
     const context = document.createElement('p');
     context.textContent = (item.adset || '광고 그룹 미지정') + ' · 광고 ID ' + item.id;
     card.append(heading, context);
-    const previewUrl = safeUrl(item.previewUrl, false);
-    const imageUrl = safeUrl(item.imageUrl, true);
-    const thumbnailUrl = safeUrl(item.thumbnailUrl, true);
-    if (previewUrl) {
-      const frame = document.createElement('iframe');
-      frame.src = previewUrl;
-      frame.title = item.name + ' Meta 광고 미리보기';
-      frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
-      frame.referrerPolicy = 'no-referrer';
-      frame.loading = 'lazy';
-      card.appendChild(frame);
-    }
-    if (!item.hasVideo && (imageUrl || thumbnailUrl)) {
-      const image = document.createElement('img');
-      image.src = imageUrl || thumbnailUrl;
-      image.alt = item.name + (imageUrl ? ' 소재 이미지' : ' 소재 썸네일');
-      image.loading = 'lazy';
-      image.referrerPolicy = 'no-referrer';
-      image.onerror = () => {
-        if (thumbnailUrl && image.src !== thumbnailUrl) { image.src = thumbnailUrl; return; }
-        image.remove();
-        const notice = document.createElement('p');
-        notice.textContent = '이미지가 만료되었거나 표시되지 않습니다. Meta 미리보기에서 확인해 주세요.';
-        card.appendChild(notice);
-      };
-      card.appendChild(image);
-    }
     const linkUrl = safeUrl(item.previewLink, false);
     if (linkUrl) {
       const link = document.createElement('a');
@@ -659,16 +632,9 @@ $('table').addEventListener('click', event => {
       link.textContent = 'Meta 광고 미리보기 열기 ↗';
       card.appendChild(link);
     }
-    if (!previewUrl && !imageUrl && !thumbnailUrl && !linkUrl) {
-      const notice = document.createElement('p');
-      notice.textContent = '이 광고는 미리보기 정보를 제공하지 않습니다.';
-      card.appendChild(notice);
-    }
     container.appendChild(card);
-    if (item.hasVideo) loadVideoPlayer(card, item);
+    loadVideoPlayer(card, item);
   }
-
-
 
   function fetchVideoPlayer(item) {
     const existing = videoPlayers.get(item.id);
@@ -697,7 +663,7 @@ $('table').addEventListener('click', event => {
     const loading = document.createElement('p');
     loading.className = 'creative-video-status';
     loading.setAttribute('role', 'status');
-    loading.textContent = '동영상 플레이어를 불러오는 중…';
+    loading.textContent = 'Meta 광고 미리보기를 불러오는 중…';
     card.appendChild(loading);
     try {
       const source = await fetchVideoPlayer(item);
@@ -705,7 +671,7 @@ $('table').addEventListener('click', event => {
       const frame = document.createElement('iframe');
       frame.className = 'creative-video-player';
       frame.src = source;
-      frame.title = item.name + ' 동영상 광고';
+      frame.title = item.name + ' Meta 광고';
       frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
       frame.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
       frame.allowFullscreen = true;
@@ -713,7 +679,7 @@ $('table').addEventListener('click', event => {
       const image = card.querySelector('img');
       if (image) image.replaceWith(frame);
       else card.insertBefore(frame, card.querySelector('a') || loading);
-      loading.textContent = '영상 안의 재생 버튼을 눌러주세요.';
+      loading.textContent = item.hasVideo ? '영상 안의 재생 버튼을 눌러주세요.' : '';
     } catch (error) {
       if (card.isConnected) loading.textContent = error.message;
     }
@@ -760,7 +726,7 @@ $('table').addEventListener('click', event => {
         status.textContent = '해당 이름과 캠페인·광고 그룹이 일치하는 Meta 광고를 찾지 못했습니다.';
         return;
       }
-      status.textContent = items.length + '개 광고 · 같은 소재명의 광고는 캠페인·광고 그룹별로 표시합니다. 동영상 소재는 플레이어가 열리면 재생 버튼을 눌러주세요.';
+      status.textContent = items.length + '개 광고 · 같은 소재명의 광고는 캠페인·광고 그룹별로 표시합니다. 동영상은 미리보기 안의 재생 버튼을 눌러주세요.';
       items.forEach(addPreview);
     } catch (error) {
       if (sequence !== previewSequence || !dialog.open) return;
